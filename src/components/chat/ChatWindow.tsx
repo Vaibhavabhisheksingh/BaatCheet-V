@@ -371,17 +371,26 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
   const toggleReaction = async (messageId: string, emoji: string) => {
     if (!user) return;
 
-    const existingReaction = reactions[messageId]?.find(
-      (r) => r.user_id === user.id && r.emoji === emoji
-    );
+    const userReactions = reactions[messageId]?.filter((r) => r.user_id === user.id) || [];
+    const existingSameEmoji = userReactions.find((r) => r.emoji === emoji);
 
     try {
-      if (existingReaction) {
+      // If clicking same emoji, remove it
+      if (existingSameEmoji) {
         await supabase
           .from('message_reactions')
           .delete()
-          .eq('id', existingReaction.id);
+          .eq('id', existingSameEmoji.id);
       } else {
+        // Remove any existing reaction from this user first (one reaction per user per message)
+        if (userReactions.length > 0) {
+          await supabase
+            .from('message_reactions')
+            .delete()
+            .eq('message_id', messageId)
+            .eq('user_id', user.id);
+        }
+        // Add the new reaction
         await supabase.from('message_reactions').insert({
           message_id: messageId,
           user_id: user.id,
