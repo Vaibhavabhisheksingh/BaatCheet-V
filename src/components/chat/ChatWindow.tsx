@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Send, ArrowLeft } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -29,7 +29,10 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
   const [newMessage, setNewMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const [isPartnerOnline, setIsPartnerOnline] = useState(false);
+  const [isPartnerTyping, setIsPartnerTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const { user } = useAuth();
 
   const scrollToBottom = () => {
@@ -55,8 +58,7 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
     }
   };
 
-  // Mark messages as read
-  const markMessagesAsRead = async () => {
+  const markMessagesAsRead = useCallback(async () => {
     if (!user) return;
 
     try {
@@ -69,7 +71,7 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
     } catch (error) {
       console.error('Error marking messages as read:', error);
     }
-  };
+  }, [user, partnerId]);
 
   useEffect(() => {
     fetchMessages();
@@ -80,7 +82,7 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
     scrollToBottom();
   }, [messages]);
 
-  // Real-time subscription
+  // Real-time subscription for messages
   useEffect(() => {
     if (!user) return;
 
@@ -111,7 +113,74 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
     return () => {
       supabase.removeChannel(channel);
     };
+  }, [user, partnerId, markMessagesAsRead]);
+
+  // Presence and typing channel
+  useEffect(() => {
+    if (!user) return;
+
+    const roomId = [user.id, partnerId].sort().join('-');
+    const presenceChannel = supabase.channel(`presence-${roomId}`, {
+      config: { presence: { key: user.id } },
+    });
+
+    presenceChannel
+      .on('presence', { event: 'sync' }, () => {
+        const state = presenceChannel.presenceState();
+        const partnerPresence = state[partnerId];
+        setIsPartnerOnline(!!partnerPresence && partnerPresence.length > 0);
+      })
+      .on('presence', { event: 'join' }, ({ key }) => {
+        if (key === partnerId) {
+          setIsPartnerOnline(true);
+        }
+      })
+      .on('presence', { event: 'leave' }, ({ key }) => {
+        if (key === partnerId) {
+          setIsPartnerOnline(false);
+        }
+      })
+      .on('broadcast', { event: 'typing' }, ({ payload }) => {
+        if (payload.userId === partnerId) {
+          setIsPartnerTyping(true);
+          if (typingTimeoutRef.current) {
+            clearTimeout(typingTimeoutRef.current);
+          }
+          typingTimeoutRef.current = setTimeout(() => {
+            setIsPartnerTyping(false);
+          }, 2000);
+        }
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await presenceChannel.track({ online_at: new Date().toISOString() });
+        }
+      });
+
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      supabase.removeChannel(presenceChannel);
+    };
   }, [user, partnerId]);
+
+  // Send typing indicator
+  const sendTypingIndicator = useCallback(() => {
+    if (!user) return;
+
+    const roomId = [user.id, partnerId].sort().join('-');
+    supabase.channel(`presence-${roomId}`).send({
+      type: 'broadcast',
+      event: 'typing',
+      payload: { userId: user.id },
+    });
+  }, [user, partnerId]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setNewMessage(e.target.value);
+    sendTypingIndicator();
+  };
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -156,34 +225,52 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center overflow-hidden">
-          {partnerImage ? (
-            <img
-              src={partnerImage}
-              alt={partnerUsername}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <span className="text-primary font-semibold">
-              {partnerUsername[0]?.toUpperCase()}
-            </span>
-          )}
+        <div className="relative">
+          <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center overflow-hidden">
+            {partnerImage ? (
+              <img
+                src={partnerImage}
+                alt={partnerUsername}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <span className="text-primary font-semibold">
+                {partnerUsername[0]?.toUpperCase()}
+              </span>
+            )}
+          </div>
+          {/* Online indicator */}
+          <span
+            className={cn(
+              "absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background transition-colors",
+              isPartnerOnline ? "bg-green-500" : "bg-muted-foreground"
+            )}
+          />
         </div>
-        <div>
-          <h2 className="font-semibold text-foreground">{partnerUsername}</h2>
+        <div className="flex-1 min-w-0">
+          <h2 className="font-semibold text-foreground truncate">{partnerUsername}</h2>
+          <p className="text-xs text-muted-foreground">
+            {isPartnerTyping ? (
+              <span className="text-primary animate-pulse">typing...</span>
+            ) : isPartnerOnline ? (
+              <span className="text-green-500">online</span>
+            ) : (
+              'offline'
+            )}
+          </p>
         </div>
       </header>
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div className="flex-1 overflow-y-auto p-4 space-y-2">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="w-16 h-16 rounded-lg bg-muted flex items-center justify-center mb-4">
+            <div className="w-16 h-16 rounded-md bg-muted flex items-center justify-center mb-4">
               {partnerImage ? (
                 <img
                   src={partnerImage}
                   alt={partnerUsername}
-                  className="w-full h-full object-cover rounded-lg"
+                  className="w-full h-full object-cover rounded-md"
                 />
               ) : (
                 <span className="text-2xl font-bold text-primary">
@@ -201,15 +288,16 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
         ) : (
           messages.map((message, index) => {
             const isOwn = message.sender_id === user?.id;
+            const prevMessage = messages[index - 1];
             const showTime = index === 0 || 
-              new Date(message.created_at).getTime() - new Date(messages[index - 1].created_at).getTime() > 60000;
+              new Date(message.created_at).getTime() - new Date(prevMessage.created_at).getTime() > 300000;
 
             return (
               <div key={message.id}>
                 {showTime && (
-                  <div className="text-center mb-2">
-                    <span className="text-xs text-muted-foreground">
-                      {formatDistanceToNow(new Date(message.created_at), { addSuffix: true })}
+                  <div className="text-center my-4">
+                    <span className="text-xs text-muted-foreground bg-background/50 px-2 py-1 rounded">
+                      {format(new Date(message.created_at), 'MMM d, h:mm a')}
                     </span>
                   </div>
                 )}
@@ -221,18 +309,37 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
                 >
                   <div
                     className={cn(
-                      "max-w-[75%] px-4 py-2 rounded-lg",
+                      "max-w-[75%] px-4 py-2.5 rounded-md shadow-sm",
                       isOwn
-                        ? "gradient-amber text-primary-foreground"
+                        ? "bg-primary/20 text-foreground border border-primary/30"
                         : "bg-muted text-foreground"
                     )}
                   >
-                    <p className="text-sm break-words">{message.content}</p>
+                    <p className="text-sm break-words leading-relaxed">{message.content}</p>
+                    <p className={cn(
+                      "text-[10px] mt-1",
+                      isOwn ? "text-primary/70" : "text-muted-foreground"
+                    )}>
+                      {format(new Date(message.created_at), 'h:mm a')}
+                    </p>
                   </div>
                 </div>
               </div>
             );
           })
+        )}
+        
+        {/* Typing indicator in chat */}
+        {isPartnerTyping && (
+          <div className="flex justify-start">
+            <div className="bg-muted px-4 py-2.5 rounded-md">
+              <div className="flex gap-1">
+                <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
+            </div>
+          </div>
         )}
         <div ref={messagesEndRef} />
       </div>
@@ -244,7 +351,7 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
             type="text"
             placeholder={`Message ${partnerUsername}...`}
             value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
+            onChange={handleInputChange}
             className="flex-1"
             maxLength={2000}
           />
