@@ -3,15 +3,13 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Send, ArrowLeft, Image, X, Check, CheckCheck, Smile, Play } from 'lucide-react';
-import { format } from 'date-fns';
+import { Send, ArrowLeft, Image, X, Mic } from 'lucide-react';
+import { format, formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
+import MessageBubble from './MessageBubble';
+import VoiceRecorder from './VoiceRecorder';
+import ProfileView from './ProfileView';
 
 interface Message {
   id: string;
@@ -39,9 +37,10 @@ interface ChatWindowProps {
 }
 
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png'];
 const ALLOWED_VIDEO_TYPES = ['video/mp4'];
+const ALLOWED_AUDIO_TYPES = ['audio/webm', 'audio/mp4', 'audio/mpeg'];
 
 export default function ChatWindow({ partnerId, partnerUsername, partnerImage, onBack }: ChatWindowProps) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -51,9 +50,14 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
   const [isSending, setIsSending] = useState(false);
   const [isPartnerOnline, setIsPartnerOnline] = useState(false);
   const [isPartnerTyping, setIsPartnerTyping] = useState(false);
+  const [partnerLastSeen, setPartnerLastSeen] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
+  const [showPartnerProfile, setShowPartnerProfile] = useState(false);
+  const [partnerProfile, setPartnerProfile] = useState<any>(null);
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -62,6 +66,24 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
+
+  const fetchPartnerProfile = async () => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', partnerId)
+      .single();
+    
+    if (data) {
+      setPartnerProfile(data);
+      setPartnerLastSeen(data.last_seen);
+    }
+  };
+
+  const updateLastSeen = useCallback(async () => {
+    if (!user) return;
+    await supabase.rpc('update_last_seen');
+  }, [user]);
 
   const fetchMessages = async () => {
     if (!user) return;
@@ -76,7 +98,6 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
       if (error) throw error;
       setMessages(data || []);
 
-      // Fetch reactions for these messages
       if (data && data.length > 0) {
         const messageIds = data.map(m => m.id);
         const { data: reactionsData } = await supabase
@@ -117,7 +138,12 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
 
   useEffect(() => {
     fetchMessages();
+    fetchPartnerProfile();
     markMessagesAsRead();
+    updateLastSeen();
+
+    const interval = setInterval(updateLastSeen, 60000);
+    return () => clearInterval(interval);
   }, [user, partnerId]);
 
   useEffect(() => {
@@ -154,6 +180,9 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
             setMessages((prev) =>
               prev.map((m) => (m.id === updatedMsg.id ? updatedMsg : m))
             );
+          } else if (payload.eventType === 'DELETE') {
+            const deletedMsg = payload.old as { id: string };
+            setMessages((prev) => prev.filter((m) => m.id !== deletedMsg.id));
           }
         }
       )
@@ -228,6 +257,7 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
       .on('presence', { event: 'leave' }, ({ key }) => {
         if (key === partnerId) {
           setIsPartnerOnline(false);
+          fetchPartnerProfile(); // Refresh last seen
         }
       })
       .on('broadcast', { event: 'typing' }, ({ payload }) => {
@@ -275,13 +305,11 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file size
     if (file.size > MAX_FILE_SIZE) {
       toast.error('File size must be less than 10MB');
       return;
     }
 
-    // Validate file type
     const isImage = ALLOWED_IMAGE_TYPES.includes(file.type);
     const isVideo = ALLOWED_VIDEO_TYPES.includes(file.type);
 
@@ -292,7 +320,6 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
 
     setSelectedFile(file);
 
-    // Create preview
     const reader = new FileReader();
     reader.onload = (e) => {
       setFilePreview(e.target?.result as string);
@@ -308,12 +335,10 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
     }
   };
 
-  const uploadFile = async (file: File): Promise<{ url: string; type: string }> => {
+  const uploadFile = async (file: File, mediaType: string): Promise<{ url: string; type: string }> => {
     if (!user) throw new Error('Not authenticated');
 
-    const isImage = ALLOWED_IMAGE_TYPES.includes(file.type);
-    const mediaType = isImage ? 'image' : 'video';
-    const fileExt = file.name.split('.').pop();
+    const fileExt = file.name.split('.').pop() || (mediaType === 'audio' ? 'webm' : 'bin');
     const fileName = `${user.id}/${Date.now()}.${fileExt}`;
 
     const { error: uploadError } = await supabase.storage
@@ -343,7 +368,9 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
       let mediaType = 'text';
 
       if (selectedFile) {
-        const uploadResult = await uploadFile(selectedFile);
+        const isImage = ALLOWED_IMAGE_TYPES.includes(selectedFile.type);
+        const uploadType = isImage ? 'image' : 'video';
+        const uploadResult = await uploadFile(selectedFile, uploadType);
         mediaUrl = uploadResult.url;
         mediaType = uploadResult.type;
         clearSelectedFile();
@@ -368,6 +395,47 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
     }
   };
 
+  const sendVoiceMessage = async (blob: Blob, duration: number) => {
+    if (!user) return;
+
+    setIsUploading(true);
+    try {
+      const file = new File([blob], `voice-${Date.now()}.webm`, { type: 'audio/webm' });
+      const uploadResult = await uploadFile(file, 'audio');
+
+      const { error } = await supabase.from('messages').insert({
+        sender_id: user.id,
+        receiver_id: partnerId,
+        content: `Voice message (${Math.floor(duration / 60)}:${(duration % 60).toString().padStart(2, '0')})`,
+        media_url: uploadResult.url,
+        media_type: 'audio',
+      });
+
+      if (error) throw error;
+      setShowVoiceRecorder(false);
+    } catch (error) {
+      console.error('Error sending voice message:', error);
+      toast.error('Failed to send voice message');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const deleteMessage = async (messageId: string) => {
+    try {
+      const { error } = await supabase
+        .from('messages')
+        .delete()
+        .eq('id', messageId);
+
+      if (error) throw error;
+      toast.success('Message deleted');
+    } catch (error) {
+      console.error('Error deleting message:', error);
+      toast.error('Failed to delete message');
+    }
+  };
+
   const toggleReaction = async (messageId: string, emoji: string) => {
     if (!user) return;
 
@@ -375,14 +443,12 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
     const existingSameEmoji = userReactions.find((r) => r.emoji === emoji);
 
     try {
-      // If clicking same emoji, remove it
       if (existingSameEmoji) {
         await supabase
           .from('message_reactions')
           .delete()
           .eq('id', existingSameEmoji.id);
       } else {
-        // Remove any existing reaction from this user first (one reaction per user per message)
         if (userReactions.length > 0) {
           await supabase
             .from('message_reactions')
@@ -390,7 +456,6 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
             .eq('message_id', messageId)
             .eq('user_id', user.id);
         }
-        // Add the new reaction
         await supabase.from('message_reactions').insert({
           message_id: messageId,
           user_id: user.id,
@@ -420,6 +485,18 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
     return grouped;
   };
 
+  const getStatusText = () => {
+    if (isPartnerTyping) return <span className="text-primary animate-pulse">typing...</span>;
+    if (isPartnerOnline) return <span className="text-green-500">online</span>;
+    if (partnerLastSeen) {
+      const lastSeen = new Date(partnerLastSeen);
+      const diffMinutes = (new Date().getTime() - lastSeen.getTime()) / (1000 * 60);
+      if (diffMinutes < 5) return <span className="text-green-500">online</span>;
+      return `last seen ${formatDistanceToNow(lastSeen, { addSuffix: true })}`;
+    }
+    return 'offline';
+  };
+
   if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -438,8 +515,11 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <div className="relative">
-          <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center overflow-hidden">
+        <button 
+          className="relative"
+          onClick={() => setShowPartnerProfile(true)}
+        >
+          <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center overflow-hidden hover:opacity-80 transition-opacity">
             {partnerImage ? (
               <img
                 src={partnerImage}
@@ -458,19 +538,18 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
               isPartnerOnline ? "bg-green-500" : "bg-muted-foreground"
             )}
           />
-        </div>
-        <div className="flex-1 min-w-0">
-          <h2 className="font-semibold text-foreground truncate">{partnerUsername}</h2>
+        </button>
+        <button 
+          className="flex-1 min-w-0 text-left"
+          onClick={() => setShowPartnerProfile(true)}
+        >
+          <h2 className="font-semibold text-foreground truncate hover:text-primary transition-colors">
+            {partnerUsername}
+          </h2>
           <p className="text-xs text-muted-foreground">
-            {isPartnerTyping ? (
-              <span className="text-primary animate-pulse">typing...</span>
-            ) : isPartnerOnline ? (
-              <span className="text-green-500">online</span>
-            ) : (
-              'offline'
-            )}
+            {getStatusText()}
           </p>
-        </div>
+        </button>
       </header>
 
       {/* Messages Area */}
@@ -503,7 +582,6 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
             const prevMessage = messages[index - 1];
             const showTime = index === 0 || 
               new Date(message.created_at).getTime() - new Date(prevMessage.created_at).getTime() > 300000;
-            const msgReactions = groupedReactions(message.id);
 
             return (
               <div key={message.id}>
@@ -514,121 +592,14 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
                     </span>
                   </div>
                 )}
-                <div
-                  className={cn(
-                    "flex group",
-                    isOwn ? "justify-end" : "justify-start"
-                  )}
-                >
-                  <div className="relative max-w-[75%]">
-                    <div
-                      className={cn(
-                        "px-4 py-2.5 rounded-md shadow-sm",
-                        isOwn
-                          ? "bg-primary/20 text-foreground border border-primary/30"
-                          : "bg-muted text-foreground"
-                      )}
-                    >
-                      {/* Media content */}
-                      {message.media_url && message.media_type === 'image' && (
-                        <img
-                          src={message.media_url}
-                          alt="Shared image"
-                          className="rounded-md max-w-full mb-2 cursor-pointer"
-                          onClick={() => window.open(message.media_url!, '_blank')}
-                        />
-                      )}
-                      {message.media_url && message.media_type === 'video' && (
-                        <video
-                          src={message.media_url}
-                          controls
-                          className="rounded-md max-w-full mb-2"
-                        />
-                      )}
-
-                      {/* Text content */}
-                      {message.content && (
-                        <p className="text-sm break-words leading-relaxed">{message.content}</p>
-                      )}
-
-                      {/* Timestamp and read receipt */}
-                      <div className={cn(
-                        "flex items-center gap-1 mt-1",
-                        isOwn ? "justify-end" : "justify-start"
-                      )}>
-                        <span className={cn(
-                          "text-[10px]",
-                          isOwn ? "text-primary/70" : "text-muted-foreground"
-                        )}>
-                          {format(new Date(message.created_at), 'h:mm a')}
-                        </span>
-                        {isOwn && (
-                          <span className={cn(
-                            "text-xs",
-                            message.is_read ? "text-primary" : "text-muted-foreground"
-                          )}>
-                            {message.is_read ? (
-                              <CheckCheck className="w-3.5 h-3.5" />
-                            ) : (
-                              <Check className="w-3.5 h-3.5" />
-                            )}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Reactions display */}
-                    {Object.keys(msgReactions).length > 0 && (
-                      <div className={cn(
-                        "flex gap-1 mt-1",
-                        isOwn ? "justify-end" : "justify-start"
-                      )}>
-                        {Object.entries(msgReactions).map(([emoji, data]) => (
-                          <button
-                            key={emoji}
-                            onClick={() => toggleReaction(message.id, emoji)}
-                            className={cn(
-                              "flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs",
-                              data.hasUserReacted
-                                ? "bg-primary/20 border border-primary/30"
-                                : "bg-muted hover:bg-muted/80"
-                            )}
-                          >
-                            <span>{emoji}</span>
-                            <span className="text-muted-foreground">{data.count}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Reaction picker */}
-                    <div className={cn(
-                      "absolute top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity",
-                      isOwn ? "-left-8" : "-right-8"
-                    )}>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <button className="p-1 rounded-full bg-muted hover:bg-muted/80">
-                            <Smile className="w-4 h-4 text-muted-foreground" />
-                          </button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-2" side={isOwn ? "left" : "right"}>
-                          <div className="flex gap-1">
-                            {REACTION_EMOJIS.map((emoji) => (
-                              <button
-                                key={emoji}
-                                onClick={() => toggleReaction(message.id, emoji)}
-                                className="text-lg hover:scale-125 transition-transform p-1"
-                              >
-                                {emoji}
-                              </button>
-                            ))}
-                          </div>
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                  </div>
-                </div>
+                <MessageBubble
+                  message={message}
+                  isOwn={isOwn}
+                  reactions={groupedReactions(message.id)}
+                  onToggleReaction={(emoji) => toggleReaction(message.id, emoji)}
+                  onDelete={isOwn ? () => deleteMessage(message.id) : undefined}
+                  reactionEmojis={REACTION_EMOJIS}
+                />
               </div>
             );
           })
@@ -661,7 +632,7 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
               />
             ) : (
               <div className="h-20 w-32 bg-muted rounded-md flex items-center justify-center">
-                <Play className="w-8 h-8 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Video</span>
               </div>
             )}
             <button
@@ -677,48 +648,79 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
         </div>
       )}
 
-      {/* Message Input */}
-      <form onSubmit={sendMessage} className="p-4 border-t border-border flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/jpeg,image/png,video/mp4"
-            onChange={handleFileSelect}
-            className="hidden"
+      {/* Voice Recorder */}
+      {showVoiceRecorder && (
+        <div className="px-4 py-2 border-t border-border">
+          <VoiceRecorder
+            onSend={sendVoiceMessage}
+            onCancel={() => setShowVoiceRecorder(false)}
+            isUploading={isUploading}
           />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isUploading}
-          >
-            <Image className="w-5 h-5 text-muted-foreground" />
-          </Button>
-          <Input
-            type="text"
-            placeholder={`Message ${partnerUsername}...`}
-            value={newMessage}
-            onChange={handleInputChange}
-            className="flex-1"
-            maxLength={2000}
-            disabled={isUploading}
-          />
-          <Button 
-            type="submit" 
-            variant="amber" 
-            size="icon"
-            disabled={(!newMessage.trim() && !selectedFile) || isSending}
-          >
-            {isUploading ? (
-              <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <Send className="w-4 h-4" />
-            )}
-          </Button>
         </div>
-      </form>
+      )}
+
+      {/* Message Input */}
+      {!showVoiceRecorder && (
+        <form onSubmit={sendMessage} className="p-4 border-t border-border flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,video/mp4"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+            >
+              <Image className="w-5 h-5 text-muted-foreground" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowVoiceRecorder(true)}
+              disabled={isUploading}
+            >
+              <Mic className="w-5 h-5 text-muted-foreground" />
+            </Button>
+            <Input
+              type="text"
+              placeholder={`Message ${partnerUsername}...`}
+              value={newMessage}
+              onChange={handleInputChange}
+              className="flex-1"
+              maxLength={2000}
+              disabled={isUploading}
+            />
+            <Button 
+              type="submit" 
+              variant="amber" 
+              size="icon"
+              disabled={(!newMessage.trim() && !selectedFile) || isSending}
+            >
+              {isUploading ? (
+                <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Send className="w-4 h-4" />
+              )}
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {/* Partner Profile Modal */}
+      {showPartnerProfile && partnerProfile && (
+        <ProfileView
+          profile={partnerProfile}
+          isOwnProfile={false}
+          onClose={() => setShowPartnerProfile(false)}
+        />
+      )}
     </div>
   );
 }
