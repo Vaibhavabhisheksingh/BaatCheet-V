@@ -85,6 +85,7 @@ export type Database = {
           created_at: string
           email: string
           id: string
+          last_seen: string | null
           profile_image: string | null
           updated_at: string
           user_id: string
@@ -95,6 +96,7 @@ export type Database = {
           created_at?: string
           email: string
           id?: string
+          last_seen?: string | null
           profile_image?: string | null
           updated_at?: string
           user_id: string
@@ -105,6 +107,7 @@ export type Database = {
           created_at?: string
           email?: string
           id?: string
+          last_seen?: string | null
           profile_image?: string | null
           updated_at?: string
           user_id?: string
@@ -131,6 +134,7 @@ export type Database = {
           unread_count: number
         }[]
       }
+      update_last_seen: { Args: never; Returns: undefined }
     }
     Enums: {
       [_ in never]: never

@@ -13,6 +13,7 @@ import {
 import ChatList from '@/components/chat/ChatList';
 import ChatWindow from '@/components/chat/ChatWindow';
 import UserSearch from '@/components/chat/UserSearch';
+import ProfileView from '@/components/chat/ProfileView';
 
 interface SelectedChat {
   partnerId: string;
@@ -25,6 +26,7 @@ export default function Chat() {
   const navigate = useNavigate();
   const [showUserSearch, setShowUserSearch] = useState(false);
   const [selectedChat, setSelectedChat] = useState<SelectedChat | null>(null);
+  const [showOwnProfile, setShowOwnProfile] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -112,7 +114,10 @@ export default function Chat() {
         {/* User Section */}
         <div className="p-4 border-t border-sidebar-border flex-shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center overflow-hidden">
+            <button 
+              onClick={() => setShowOwnProfile(true)}
+              className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center overflow-hidden hover:opacity-80 transition-opacity"
+            >
               {profile?.profile_image ? (
                 <img 
                   src={profile.profile_image} 
@@ -124,17 +129,21 @@ export default function Chat() {
                   {profile?.username?.[0]?.toUpperCase() || 'U'}
                 </span>
               )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-foreground truncate">
+            </button>
+            <button 
+              onClick={() => setShowOwnProfile(true)}
+              className="flex-1 min-w-0 text-left"
+            >
+              <p className="text-sm font-medium text-foreground truncate hover:text-primary transition-colors">
                 {profile?.username || 'User'}
               </p>
               <p className="text-xs text-muted-foreground truncate">
                 {profile?.email}
               </p>
-            </div>
+            </button>
             <div className="flex items-center gap-1">
               <button 
+                onClick={() => setShowOwnProfile(true)}
                 className="p-2 text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted"
                 title="Settings"
               >
@@ -188,6 +197,15 @@ export default function Chat() {
           </div>
         )}
       </main>
+
+      {/* Own Profile Modal */}
+      {showOwnProfile && profile && (
+        <ProfileView
+          profile={profile}
+          isOwnProfile={true}
+          onClose={() => setShowOwnProfile(false)}
+        />
+      )}
     </div>
   );
 }
