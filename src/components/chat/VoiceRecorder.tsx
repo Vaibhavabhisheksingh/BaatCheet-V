@@ -17,7 +17,7 @@ export default function VoiceRecorder({ onSend, onCancel, isUploading }: VoiceRe
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const startRecording = useCallback(async () => {

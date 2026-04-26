@@ -3,13 +3,29 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Send, ArrowLeft, Image, X, Mic } from 'lucide-react';
+import { Send, ArrowLeft, Image, X, Mic, MoreVertical, Trash2 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import MessageBubble from './MessageBubble';
 import VoiceRecorder from './VoiceRecorder';
 import ProfileView from './ProfileView';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface Message {
   id: string;
@@ -20,6 +36,14 @@ interface Message {
   created_at: string;
   media_url: string | null;
   media_type: string;
+  edited_at?: string | null;
+}
+
+interface Reaction {
+  id: string;
+  message_id: string;
+  user_id: string;
+  emoji: string;
 }
 
 interface Reaction {
@@ -57,10 +81,12 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
   const [showPartnerProfile, setShowPartnerProfile] = useState(false);
   const [partnerProfile, setPartnerProfile] = useState<any>(null);
+  const [confirmDeleteChatOpen, setConfirmDeleteChatOpen] = useState(false);
+  const [isDeletingChat, setIsDeletingChat] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { user } = useAuth();
 
   const scrollToBottom = () => {
@@ -413,9 +439,10 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
 
       if (error) throw error;
       setShowVoiceRecorder(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error sending voice message:', error);
-      toast.error('Failed to send voice message');
+      const msg = error?.message || error?.error_description || 'Failed to send voice message';
+      toast.error(msg);
     } finally {
       setIsUploading(false);
     }
@@ -423,16 +450,70 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
 
   const deleteMessage = async (messageId: string) => {
     try {
+      const message = messages.find((m) => m.id === messageId);
       const { error } = await supabase
         .from('messages')
         .delete()
         .eq('id', messageId);
 
       if (error) throw error;
+
+      // Best-effort: clean up associated media file from storage
+      if (message?.media_url) {
+        try {
+          const url = new URL(message.media_url);
+          const marker = '/chat-media/';
+          const idx = url.pathname.indexOf(marker);
+          if (idx !== -1) {
+            const path = url.pathname.slice(idx + marker.length);
+            await supabase.storage.from('chat-media').remove([path]);
+          }
+        } catch (storageErr) {
+          console.warn('Failed to remove media file:', storageErr);
+        }
+      }
+
       toast.success('Message deleted');
     } catch (error) {
       console.error('Error deleting message:', error);
       toast.error('Failed to delete message');
+    }
+  };
+
+  const editMessage = async (messageId: string, newContent: string) => {
+    try {
+      const { error } = await supabase
+        .from('messages')
+        .update({ content: newContent, edited_at: new Date().toISOString() })
+        .eq('id', messageId);
+      if (error) throw error;
+      toast.success('Message updated');
+    } catch (error) {
+      console.error('Error editing message:', error);
+      toast.error('Failed to edit message');
+      throw error;
+    }
+  };
+
+  const deleteMyChat = async () => {
+    if (!user) return;
+    setIsDeletingChat(true);
+    try {
+      // RLS only allows deleting messages where auth.uid() = sender_id
+      const { error } = await supabase
+        .from('messages')
+        .delete()
+        .eq('sender_id', user.id)
+        .eq('receiver_id', partnerId);
+      if (error) throw error;
+      setMessages((prev) => prev.filter((m) => m.sender_id !== user.id));
+      toast.success('Your messages in this chat were deleted');
+      setConfirmDeleteChatOpen(false);
+    } catch (error) {
+      console.error('Error deleting chat:', error);
+      toast.error('Failed to delete chat');
+    } finally {
+      setIsDeletingChat(false);
     }
   };
 
@@ -550,6 +631,31 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
             {getStatusText()}
           </p>
         </button>
+
+        {/* Chat actions menu */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="p-2 text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted"
+              title="Chat options"
+              aria-label="Chat options"
+            >
+              <MoreVertical className="w-5 h-5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-[180px]">
+            <DropdownMenuItem onClick={() => setShowPartnerProfile(true)}>
+              View profile
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => setConfirmDeleteChatOpen(true)}
+              className="text-destructive focus:text-destructive focus:bg-destructive/10"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete my chat
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </header>
 
       {/* Messages Area */}
@@ -598,6 +704,7 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
                   reactions={groupedReactions(message.id)}
                   onToggleReaction={(emoji) => toggleReaction(message.id, emoji)}
                   onDelete={isOwn ? () => deleteMessage(message.id) : undefined}
+                  onEdit={isOwn ? (newContent) => editMessage(message.id, newContent) : undefined}
                   reactionEmojis={REACTION_EMOJIS}
                 />
               </div>
@@ -721,6 +828,34 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
           onClose={() => setShowPartnerProfile(false)}
         />
       )}
+
+      {/* Delete entire chat confirmation */}
+      <AlertDialog open={confirmDeleteChatOpen} onOpenChange={setConfirmDeleteChatOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <span className="w-9 h-9 rounded-full bg-destructive/10 flex items-center justify-center">
+                <Trash2 className="w-4 h-4 text-destructive" />
+              </span>
+              Delete this chat?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete all messages you sent to {partnerUsername} from this conversation.
+              Messages they sent to you will remain. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingChat}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); deleteMyChat(); }}
+              disabled={isDeletingChat}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeletingChat ? 'Deleting...' : 'Delete chat'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
