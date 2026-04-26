@@ -81,6 +81,8 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
   const [showPartnerProfile, setShowPartnerProfile] = useState(false);
   const [partnerProfile, setPartnerProfile] = useState<any>(null);
+  const [confirmDeleteChatOpen, setConfirmDeleteChatOpen] = useState(false);
+  const [isDeletingChat, setIsDeletingChat] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
