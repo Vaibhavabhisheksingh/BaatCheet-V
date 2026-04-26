@@ -369,7 +369,10 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
 
     const { error: uploadError } = await supabase.storage
       .from('chat-media')
-      .upload(fileName, file);
+      .upload(fileName, file, {
+        contentType: file.type || undefined,
+        upsert: false,
+      });
 
     if (uploadError) throw uploadError;
 
