@@ -911,6 +911,14 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Wallpaper picker */}
+      <WallpaperPicker
+        open={showWallpaperPicker}
+        current={wallpaper}
+        onSelect={(id) => saveWallpaper(id)}
+        onClose={() => setShowWallpaperPicker(false)}
+      />
     </div>
   );
 }
