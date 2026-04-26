@@ -429,7 +429,18 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
 
     setIsUploading(true);
     try {
-      const file = new File([blob], `voice-${Date.now()}.webm`, { type: 'audio/webm' });
+      // Derive extension from the actual recorded blob mime type
+      const rawType = (blob.type || 'audio/webm').toLowerCase();
+      const baseType = rawType.split(';')[0].trim(); // strip codecs
+      const extMap: Record<string, string> = {
+        'audio/webm': 'webm',
+        'audio/ogg': 'ogg',
+        'audio/mp4': 'm4a',
+        'audio/mpeg': 'mp3',
+        'audio/wav': 'wav',
+      };
+      const ext = extMap[baseType] || 'webm';
+      const file = new File([blob], `voice-${Date.now()}.${ext}`, { type: baseType });
       const uploadResult = await uploadFile(file, 'audio');
 
       const { error } = await supabase.from('messages').insert({
