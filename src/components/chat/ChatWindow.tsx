@@ -631,6 +631,31 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
             {getStatusText()}
           </p>
         </button>
+
+        {/* Chat actions menu */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="p-2 text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted"
+              title="Chat options"
+              aria-label="Chat options"
+            >
+              <MoreVertical className="w-5 h-5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-[180px]">
+            <DropdownMenuItem onClick={() => setShowPartnerProfile(true)}>
+              View profile
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => setConfirmDeleteChatOpen(true)}
+              className="text-destructive focus:text-destructive focus:bg-destructive/10"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete my chat
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </header>
 
       {/* Messages Area */}
