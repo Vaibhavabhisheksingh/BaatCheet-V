@@ -36,6 +36,14 @@ interface Message {
   created_at: string;
   media_url: string | null;
   media_type: string;
+  edited_at?: string | null;
+}
+
+interface Reaction {
+  id: string;
+  message_id: string;
+  user_id: string;
+  emoji: string;
 }
 
 interface Reaction {
