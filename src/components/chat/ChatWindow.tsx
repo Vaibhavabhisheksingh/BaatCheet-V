@@ -439,9 +439,10 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
 
       if (error) throw error;
       setShowVoiceRecorder(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error sending voice message:', error);
-      toast.error('Failed to send voice message');
+      const msg = error?.message || error?.error_description || 'Failed to send voice message';
+      toast.error(msg);
     } finally {
       setIsUploading(false);
     }
