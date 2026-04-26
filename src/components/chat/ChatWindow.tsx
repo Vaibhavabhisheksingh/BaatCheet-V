@@ -165,9 +165,43 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
     }
   }, [user, partnerId]);
 
+  const fetchWallpaper = useCallback(async () => {
+    if (!user) return;
+    try {
+      const { data } = await (supabase as any)
+        .from('chat_themes')
+        .select('wallpaper')
+        .eq('user_id', user.id)
+        .eq('partner_id', partnerId)
+        .maybeSingle();
+      if (data?.wallpaper) setWallpaper(data.wallpaper);
+      else setWallpaper('default');
+    } catch (err) {
+      console.warn('Could not load chat wallpaper:', err);
+    }
+  }, [user, partnerId]);
+
+  const saveWallpaper = useCallback(async (id: string) => {
+    if (!user) return;
+    setWallpaper(id);
+    try {
+      const { error } = await (supabase as any)
+        .from('chat_themes')
+        .upsert(
+          { user_id: user.id, partner_id: partnerId, wallpaper: id },
+          { onConflict: 'user_id,partner_id' }
+        );
+      if (error) throw error;
+    } catch (err) {
+      console.error('Failed to save wallpaper:', err);
+      toast.error('Could not save wallpaper');
+    }
+  }, [user, partnerId]);
+
   useEffect(() => {
     fetchMessages();
     fetchPartnerProfile();
+    fetchWallpaper();
     markMessagesAsRead();
     updateLastSeen();
 
