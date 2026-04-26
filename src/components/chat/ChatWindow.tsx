@@ -3,13 +3,14 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Send, ArrowLeft, Image, X, Mic, MoreVertical, Trash2 } from 'lucide-react';
+import { Send, ArrowLeft, Image, X, Mic, MoreVertical, Trash2, Palette } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import MessageBubble from './MessageBubble';
 import VoiceRecorder from './VoiceRecorder';
 import ProfileView from './ProfileView';
+import WallpaperPicker, { getWallpaperClass } from './WallpaperPicker';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -83,6 +84,8 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
   const [partnerProfile, setPartnerProfile] = useState<any>(null);
   const [confirmDeleteChatOpen, setConfirmDeleteChatOpen] = useState(false);
   const [isDeletingChat, setIsDeletingChat] = useState(false);
+  const [wallpaper, setWallpaper] = useState<string>('default');
+  const [showWallpaperPicker, setShowWallpaperPicker] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -162,9 +165,43 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
     }
   }, [user, partnerId]);
 
+  const fetchWallpaper = useCallback(async () => {
+    if (!user) return;
+    try {
+      const { data } = await (supabase as any)
+        .from('chat_themes')
+        .select('wallpaper')
+        .eq('user_id', user.id)
+        .eq('partner_id', partnerId)
+        .maybeSingle();
+      if (data?.wallpaper) setWallpaper(data.wallpaper);
+      else setWallpaper('default');
+    } catch (err) {
+      console.warn('Could not load chat wallpaper:', err);
+    }
+  }, [user, partnerId]);
+
+  const saveWallpaper = useCallback(async (id: string) => {
+    if (!user) return;
+    setWallpaper(id);
+    try {
+      const { error } = await (supabase as any)
+        .from('chat_themes')
+        .upsert(
+          { user_id: user.id, partner_id: partnerId, wallpaper: id },
+          { onConflict: 'user_id,partner_id' }
+        );
+      if (error) throw error;
+    } catch (err) {
+      console.error('Failed to save wallpaper:', err);
+      toast.error('Could not save wallpaper');
+    }
+  }, [user, partnerId]);
+
   useEffect(() => {
     fetchMessages();
     fetchPartnerProfile();
+    fetchWallpaper();
     markMessagesAsRead();
     updateLastSeen();
 
@@ -657,9 +694,13 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
               <MoreVertical className="w-5 h-5" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-[180px]">
+          <DropdownMenuContent align="end" className="min-w-[200px]">
             <DropdownMenuItem onClick={() => setShowPartnerProfile(true)}>
               View profile
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setShowWallpaperPicker(true)}>
+              <Palette className="w-4 h-4 mr-2" />
+              Chat wallpaper
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => setConfirmDeleteChatOpen(true)}
@@ -673,7 +714,7 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
       </header>
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
+      <div className={cn("flex-1 overflow-y-auto p-4 space-y-2 transition-colors", getWallpaperClass(wallpaper))}>
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <div className="w-16 h-16 rounded-md bg-muted flex items-center justify-center mb-4">
@@ -870,6 +911,14 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Wallpaper picker */}
+      <WallpaperPicker
+        open={showWallpaperPicker}
+        current={wallpaper}
+        onSelect={(id) => saveWallpaper(id)}
+        onClose={() => setShowWallpaperPicker(false)}
+      />
     </div>
   );
 }
