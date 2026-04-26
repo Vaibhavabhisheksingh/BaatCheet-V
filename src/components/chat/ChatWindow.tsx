@@ -828,6 +828,34 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
           onClose={() => setShowPartnerProfile(false)}
         />
       )}
+
+      {/* Delete entire chat confirmation */}
+      <AlertDialog open={confirmDeleteChatOpen} onOpenChange={setConfirmDeleteChatOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <span className="w-9 h-9 rounded-full bg-destructive/10 flex items-center justify-center">
+                <Trash2 className="w-4 h-4 text-destructive" />
+              </span>
+              Delete this chat?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete all messages you sent to {partnerUsername} from this conversation.
+              Messages they sent to you will remain. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingChat}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); deleteMyChat(); }}
+              disabled={isDeletingChat}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeletingChat ? 'Deleting...' : 'Delete chat'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
