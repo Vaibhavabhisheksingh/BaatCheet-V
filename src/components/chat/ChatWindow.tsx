@@ -449,16 +449,70 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
 
   const deleteMessage = async (messageId: string) => {
     try {
+      const message = messages.find((m) => m.id === messageId);
       const { error } = await supabase
         .from('messages')
         .delete()
         .eq('id', messageId);
 
       if (error) throw error;
+
+      // Best-effort: clean up associated media file from storage
+      if (message?.media_url) {
+        try {
+          const url = new URL(message.media_url);
+          const marker = '/chat-media/';
+          const idx = url.pathname.indexOf(marker);
+          if (idx !== -1) {
+            const path = url.pathname.slice(idx + marker.length);
+            await supabase.storage.from('chat-media').remove([path]);
+          }
+        } catch (storageErr) {
+          console.warn('Failed to remove media file:', storageErr);
+        }
+      }
+
       toast.success('Message deleted');
     } catch (error) {
       console.error('Error deleting message:', error);
       toast.error('Failed to delete message');
+    }
+  };
+
+  const editMessage = async (messageId: string, newContent: string) => {
+    try {
+      const { error } = await supabase
+        .from('messages')
+        .update({ content: newContent, edited_at: new Date().toISOString() })
+        .eq('id', messageId);
+      if (error) throw error;
+      toast.success('Message updated');
+    } catch (error) {
+      console.error('Error editing message:', error);
+      toast.error('Failed to edit message');
+      throw error;
+    }
+  };
+
+  const deleteMyChat = async () => {
+    if (!user) return;
+    setIsDeletingChat(true);
+    try {
+      // RLS only allows deleting messages where auth.uid() = sender_id
+      const { error } = await supabase
+        .from('messages')
+        .delete()
+        .eq('sender_id', user.id)
+        .eq('receiver_id', partnerId);
+      if (error) throw error;
+      setMessages((prev) => prev.filter((m) => m.sender_id !== user.id));
+      toast.success('Your messages in this chat were deleted');
+      setConfirmDeleteChatOpen(false);
+    } catch (error) {
+      console.error('Error deleting chat:', error);
+      toast.error('Failed to delete chat');
+    } finally {
+      setIsDeletingChat(false);
     }
   };
 
