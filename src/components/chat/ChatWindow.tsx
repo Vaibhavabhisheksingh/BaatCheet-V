@@ -694,9 +694,13 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
               <MoreVertical className="w-5 h-5" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-[180px]">
+          <DropdownMenuContent align="end" className="min-w-[200px]">
             <DropdownMenuItem onClick={() => setShowPartnerProfile(true)}>
               View profile
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setShowWallpaperPicker(true)}>
+              <Palette className="w-4 h-4 mr-2" />
+              Chat wallpaper
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => setConfirmDeleteChatOpen(true)}
@@ -710,7 +714,7 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
       </header>
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
+      <div className={cn("flex-1 overflow-y-auto p-4 space-y-2 transition-colors", getWallpaperClass(wallpaper))}>
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <div className="w-16 h-16 rounded-md bg-muted flex items-center justify-center mb-4">
