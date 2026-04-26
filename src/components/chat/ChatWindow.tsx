@@ -704,6 +704,7 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
                   reactions={groupedReactions(message.id)}
                   onToggleReaction={(emoji) => toggleReaction(message.id, emoji)}
                   onDelete={isOwn ? () => deleteMessage(message.id) : undefined}
+                  onEdit={isOwn ? (newContent) => editMessage(message.id, newContent) : undefined}
                   reactionEmojis={REACTION_EMOJIS}
                 />
               </div>
