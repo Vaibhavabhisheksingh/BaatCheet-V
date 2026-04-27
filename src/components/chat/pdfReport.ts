@@ -108,7 +108,7 @@ function drawCoverHeader(doc: jsPDF, args: PdfReportArgs) {
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(11);
-  doc.text(`${args.selfUsername}  ↔  ${args.partnerUsername}`, PAGE.m, 26);
+  doc.text(`${args.selfUsername}  <->  ${args.partnerUsername}`, PAGE.m, 26);
 
   doc.setFontSize(9);
   doc.text(
