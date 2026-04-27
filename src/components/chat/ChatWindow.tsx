@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Send, ArrowLeft, Image, X, Mic, MoreVertical, Trash2, Palette } from 'lucide-react';
+import { Send, ArrowLeft, Image, X, Mic, MoreVertical, Trash2, Palette, BarChart3 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -11,6 +11,7 @@ import MessageBubble from './MessageBubble';
 import VoiceRecorder from './VoiceRecorder';
 import ProfileView from './ProfileView';
 import WallpaperPicker, { getWallpaperClass } from './WallpaperPicker';
+import ChatAnalytics from './ChatAnalytics';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -86,6 +87,7 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
   const [isDeletingChat, setIsDeletingChat] = useState(false);
   const [wallpaper, setWallpaper] = useState<string>('default');
   const [showWallpaperPicker, setShowWallpaperPicker] = useState(false);
+  const [showAnalytics, setShowAnalytics] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -702,6 +704,10 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
               <Palette className="w-4 h-4 mr-2" />
               Chat wallpaper
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setShowAnalytics(true)}>
+              <BarChart3 className="w-4 h-4 mr-2" />
+              Chat analytics
+            </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => setConfirmDeleteChatOpen(true)}
               className="text-destructive focus:text-destructive focus:bg-destructive/10"
@@ -919,6 +925,17 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
         onSelect={(id) => saveWallpaper(id)}
         onClose={() => setShowWallpaperPicker(false)}
       />
+
+      {/* Chat analytics */}
+      {user && (
+        <ChatAnalytics
+          open={showAnalytics}
+          onClose={() => setShowAnalytics(false)}
+          userId={user.id}
+          partnerId={partnerId}
+          partnerUsername={partnerUsername}
+        />
+      )}
     </div>
   );
 }
