@@ -87,6 +87,7 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
   const [isDeletingChat, setIsDeletingChat] = useState(false);
   const [wallpaper, setWallpaper] = useState<string>('default');
   const [showWallpaperPicker, setShowWallpaperPicker] = useState(false);
+  const [showAnalytics, setShowAnalytics] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
