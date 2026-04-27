@@ -704,6 +704,10 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
               <Palette className="w-4 h-4 mr-2" />
               Chat wallpaper
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setShowAnalytics(true)}>
+              <BarChart3 className="w-4 h-4 mr-2" />
+              Chat analytics
+            </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => setConfirmDeleteChatOpen(true)}
               className="text-destructive focus:text-destructive focus:bg-destructive/10"
