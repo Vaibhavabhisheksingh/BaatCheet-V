@@ -11,6 +11,7 @@ import MessageBubble from './MessageBubble';
 import VoiceRecorder from './VoiceRecorder';
 import ProfileView from './ProfileView';
 import WallpaperPicker, { getWallpaperClass } from './WallpaperPicker';
+import ChatAnalytics from './ChatAnalytics';
 import {
   DropdownMenu,
   DropdownMenuContent,
