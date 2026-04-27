@@ -253,10 +253,13 @@ export default function MessageBubble({
                   {format(new Date(message.created_at), 'h:mm a')}
                 </span>
                 {isOwn && (
-                  <span className={cn(
-                    "text-xs",
-                    message.is_read ? "text-primary" : "text-muted-foreground"
-                  )}>
+                  <span
+                    title={message.is_read ? 'Seen' : 'Sent'}
+                    className={cn(
+                      "text-xs inline-flex items-center",
+                      message.is_read ? "text-primary" : "text-muted-foreground"
+                    )}
+                  >
                     {message.is_read ? (
                       <CheckCheck className="w-3.5 h-3.5" />
                     ) : (
