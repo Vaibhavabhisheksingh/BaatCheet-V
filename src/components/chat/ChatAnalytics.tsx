@@ -590,7 +590,7 @@ function buildCsvReport(args: {
   partnerUsername: string;
 }) {
   const { stats, range, selfUsername, partnerUsername } = args;
-  const lines: string[][] = [];
+  const lines: (string | number)[][] = [];
 
   lines.push(['Chat Analytics Report']);
   lines.push(['Generated', new Date().toISOString()]);
