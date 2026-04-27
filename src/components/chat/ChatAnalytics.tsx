@@ -29,6 +29,7 @@ import {
   Eye,
   EyeOff,
   Download,
+  FileText,
   CheckCheck,
 } from 'lucide-react';
 import {
@@ -43,6 +44,7 @@ import {
 import { format, differenceInMinutes, differenceInSeconds, subDays } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { downloadAnalyticsPdf } from './pdfReport';
 
 interface ChatAnalyticsProps {
   open: boolean;
@@ -171,6 +173,21 @@ export default function ChatAnalytics({
     }
   };
 
+  const handleExportPdf = () => {
+    try {
+      downloadAnalyticsPdf({
+        stats,
+        rangeLabel: RANGE_OPTIONS.find((r) => r.key === range)!.label,
+        selfUsername,
+        partnerUsername,
+      });
+      toast.success('PDF report ready');
+    } catch (e) {
+      console.error(e);
+      toast.error('Could not generate PDF');
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -199,16 +216,28 @@ export default function ChatAnalytics({
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={handleExport}
-            disabled={loading || stats.total === 0}
-          >
-            <Download className="w-4 h-4 mr-1.5" />
-            Export CSV
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={handleExport}
+              disabled={loading || stats.total === 0}
+            >
+              <Download className="w-4 h-4 mr-1.5" />
+              CSV
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="default"
+              onClick={handleExportPdf}
+              disabled={loading || stats.total === 0}
+            >
+              <FileText className="w-4 h-4 mr-1.5" />
+              PDF Report
+            </Button>
+          </div>
         </div>
 
         {loading ? (
