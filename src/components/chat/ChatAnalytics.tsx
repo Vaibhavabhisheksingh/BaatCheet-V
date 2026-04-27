@@ -29,6 +29,7 @@ import {
   Eye,
   EyeOff,
   Download,
+  FileText,
   CheckCheck,
 } from 'lucide-react';
 import {
