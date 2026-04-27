@@ -10,6 +10,11 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from '@/components/ui/toggle-group';
 import {
   BarChart3,
   Trophy,
@@ -21,6 +26,10 @@ import {
   Sunset,
   MessageSquare,
   Timer,
+  Eye,
+  EyeOff,
+  Download,
+  CheckCheck,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -31,8 +40,9 @@ import {
   Tooltip,
   CartesianGrid,
 } from 'recharts';
-import { format, differenceInMinutes, differenceInSeconds } from 'date-fns';
+import { format, differenceInMinutes, differenceInSeconds, subDays } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 interface ChatAnalyticsProps {
   open: boolean;
@@ -48,12 +58,21 @@ interface MessageRow {
   sender_id: string;
   receiver_id: string;
   created_at: string;
+  is_read: boolean;
 }
 
 type Bucket = 'morning' | 'afternoon' | 'evening' | 'night';
+type RangeKey = '7d' | '30d' | '90d' | 'all';
 
 const SESSION_GAP_MINUTES = 30;
 const STREAK_DAY_GAP_MS = 1000 * 60 * 60 * 24;
+
+const RANGE_OPTIONS: { key: RangeKey; label: string; days: number | null }[] = [
+  { key: '7d',  label: 'Last 7 days',  days: 7 },
+  { key: '30d', label: 'Last 30 days', days: 30 },
+  { key: '90d', label: 'Last 90 days', days: 90 },
+  { key: 'all', label: 'All time',     days: null },
+];
 
 function dayKey(d: Date) {
   return format(d, 'yyyy-MM-dd');
@@ -82,7 +101,8 @@ export default function ChatAnalytics({
   selfUsername = 'You',
 }: ChatAnalyticsProps) {
   const [loading, setLoading] = useState(true);
-  const [messages, setMessages] = useState<MessageRow[]>([]);
+  const [allMessages, setAllMessages] = useState<MessageRow[]>([]);
+  const [range, setRange] = useState<RangeKey>('30d');
 
   useEffect(() => {
     if (!open) return;
@@ -91,7 +111,7 @@ export default function ChatAnalytics({
     (async () => {
       const { data, error } = await supabase
         .from('messages')
-        .select('id, sender_id, receiver_id, created_at')
+        .select('id, sender_id, receiver_id, created_at, is_read')
         .or(
           `and(sender_id.eq.${userId},receiver_id.eq.${partnerId}),and(sender_id.eq.${partnerId},receiver_id.eq.${userId})`
         )
@@ -99,9 +119,9 @@ export default function ChatAnalytics({
       if (cancelled) return;
       if (error) {
         console.error('Analytics fetch failed', error);
-        setMessages([]);
+        setAllMessages([]);
       } else {
-        setMessages((data as MessageRow[]) ?? []);
+        setAllMessages((data as MessageRow[]) ?? []);
       }
       setLoading(false);
     })();
@@ -110,156 +130,14 @@ export default function ChatAnalytics({
     };
   }, [open, userId, partnerId]);
 
-  const stats = useMemo(() => {
-    const total = messages.length;
-    const selfCount = messages.filter((m) => m.sender_id === userId).length;
-    const partnerCount = total - selfCount;
-    const selfPct = total ? Math.round((selfCount / total) * 100) : 0;
-    const partnerPct = total ? 100 - selfPct : 0;
+  const messages = useMemo(() => {
+    const opt = RANGE_OPTIONS.find((r) => r.key === range)!;
+    if (opt.days === null) return allMessages;
+    const cutoff = subDays(new Date(), opt.days).getTime();
+    return allMessages.filter((m) => new Date(m.created_at).getTime() >= cutoff);
+  }, [allMessages, range]);
 
-    // Per-day series
-    const perDayMap = new Map<string, { date: string; self: number; partner: number }>();
-    for (const m of messages) {
-      const k = dayKey(new Date(m.created_at));
-      const row = perDayMap.get(k) ?? { date: k, self: 0, partner: 0 };
-      if (m.sender_id === userId) row.self += 1;
-      else row.partner += 1;
-      perDayMap.set(k, row);
-    }
-    const perDay = Array.from(perDayMap.values()).sort((a, b) =>
-      a.date.localeCompare(b.date)
-    );
-    const perDayChart = perDay.slice(-30).map((d) => ({
-      ...d,
-      label: format(new Date(d.date), 'MMM d'),
-    }));
-
-    // Average response time (only when sender flips). Cap at 24h to ignore overnight gaps.
-    const selfReplyDeltas: number[] = [];
-    const partnerReplyDeltas: number[] = [];
-    for (let i = 1; i < messages.length; i++) {
-      const prev = messages[i - 1];
-      const cur = messages[i];
-      if (prev.sender_id === cur.sender_id) continue;
-      const delta = differenceInSeconds(new Date(cur.created_at), new Date(prev.created_at));
-      if (delta < 0 || delta > 60 * 60 * 24) continue;
-      if (cur.sender_id === userId) selfReplyDeltas.push(delta);
-      else partnerReplyDeltas.push(delta);
-    }
-    const avg = (arr: number[]) =>
-      arr.length ? Math.round(arr.reduce((s, n) => s + n, 0) / arr.length) : 0;
-    const selfAvgReply = avg(selfReplyDeltas);
-    const partnerAvgReply = avg(partnerReplyDeltas);
-
-    // "Faster than X% of users" — playful percentile vs. partner only.
-    let fasterPct = 50;
-    if (selfReplyDeltas.length && partnerReplyDeltas.length) {
-      const faster = partnerReplyDeltas.filter((d) => d > selfAvgReply).length;
-      fasterPct = Math.round((faster / partnerReplyDeltas.length) * 100);
-    }
-
-    // Conversation streak — consecutive days where BOTH users sent at least one message.
-    const bothDays = new Set<string>();
-    const selfDays = new Set<string>();
-    const partnerDays = new Set<string>();
-    for (const m of messages) {
-      const k = dayKey(new Date(m.created_at));
-      if (m.sender_id === userId) selfDays.add(k);
-      else partnerDays.add(k);
-    }
-    selfDays.forEach((d) => {
-      if (partnerDays.has(d)) bothDays.add(d);
-    });
-    const sortedBoth = Array.from(bothDays).sort();
-    let currentStreak = 0;
-    let bestStreak = 0;
-    let prevTs: number | null = null;
-    let runningStreak = 0;
-    for (const d of sortedBoth) {
-      const ts = new Date(d).getTime();
-      if (prevTs !== null && ts - prevTs === STREAK_DAY_GAP_MS) {
-        runningStreak += 1;
-      } else {
-        runningStreak = 1;
-      }
-      bestStreak = Math.max(bestStreak, runningStreak);
-      prevTs = ts;
-    }
-    // Current streak: only counts if last "both" day is today or yesterday
-    if (sortedBoth.length) {
-      const lastTs = new Date(sortedBoth[sortedBoth.length - 1]).getTime();
-      const todayKey = dayKey(new Date());
-      const yKey = dayKey(new Date(Date.now() - STREAK_DAY_GAP_MS));
-      const lastKey = sortedBoth[sortedBoth.length - 1];
-      if (lastKey === todayKey || lastKey === yKey) {
-        let s = 1;
-        let cursor = lastTs;
-        for (let i = sortedBoth.length - 2; i >= 0; i--) {
-          const t = new Date(sortedBoth[i]).getTime();
-          if (cursor - t === STREAK_DAY_GAP_MS) {
-            s += 1;
-            cursor = t;
-          } else break;
-        }
-        currentStreak = s;
-      }
-    }
-
-    // Most active time of day
-    const buckets: Record<Bucket, number> = {
-      morning: 0, afternoon: 0, evening: 0, night: 0,
-    };
-    for (const m of messages) {
-      buckets[bucketForHour(new Date(m.created_at).getHours())] += 1;
-    }
-    const peakBucket = (Object.entries(buckets).sort((a, b) => b[1] - a[1])[0]?.[0] ??
-      'evening') as Bucket;
-    const peakBucketCount = buckets[peakBucket];
-
-    // Longest continuous chat session (gap > SESSION_GAP_MINUTES breaks the session)
-    let longestSession = { count: 0, start: '', end: '', durationMin: 0 };
-    let curStart = 0;
-    let curCount = 0;
-    let curStartTs = 0;
-    let curLastTs = 0;
-    for (let i = 0; i < messages.length; i++) {
-      const ts = new Date(messages[i].created_at).getTime();
-      if (i === 0 || differenceInMinutes(ts, curLastTs) > SESSION_GAP_MINUTES) {
-        curStart = i;
-        curStartTs = ts;
-        curCount = 1;
-      } else {
-        curCount += 1;
-      }
-      curLastTs = ts;
-      if (curCount > longestSession.count) {
-        longestSession = {
-          count: curCount,
-          start: new Date(curStartTs).toISOString(),
-          end: new Date(curLastTs).toISOString(),
-          durationMin: Math.max(1, Math.round((curLastTs - curStartTs) / 60000)),
-        };
-      }
-    }
-
-    return {
-      total,
-      selfCount,
-      partnerCount,
-      selfPct,
-      partnerPct,
-      perDayChart,
-      selfAvgReply,
-      partnerAvgReply,
-      fasterPct,
-      currentStreak,
-      bestStreak,
-      buckets,
-      peakBucket,
-      peakBucketCount,
-      longestSession,
-    };
-  }, [messages, userId]);
+  const stats = useMemo(() => computeStats(messages, userId), [messages, userId]);
 
   const mostActive: 'self' | 'partner' | 'tie' =
     stats.selfCount === stats.partnerCount
@@ -267,6 +145,31 @@ export default function ChatAnalytics({
       : stats.selfCount > stats.partnerCount
       ? 'self'
       : 'partner';
+
+  const handleExport = () => {
+    try {
+      const csv = buildCsvReport({
+        stats,
+        range: RANGE_OPTIONS.find((r) => r.key === range)!.label,
+        selfUsername,
+        partnerUsername,
+      });
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const safePartner = partnerUsername.replace(/[^a-z0-9-_]+/gi, '_');
+      link.href = url;
+      link.download = `chat-analytics_${safePartner}_${range}_${dayKey(new Date())}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success('Report exported');
+    } catch (e) {
+      console.error(e);
+      toast.error('Could not export report');
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -277,9 +180,36 @@ export default function ChatAnalytics({
             Chat Analytics
           </DialogTitle>
           <DialogDescription>
-            Activity and behavior insights for your conversation with {partnerUsername}.
+            Activity, engagement, and read insights for your conversation with {partnerUsername}.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Toolbar: range filter + export */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-2">
+          <ToggleGroup
+            type="single"
+            size="sm"
+            value={range}
+            onValueChange={(v) => v && setRange(v as RangeKey)}
+            className="flex-wrap"
+          >
+            {RANGE_OPTIONS.map((r) => (
+              <ToggleGroupItem key={r.key} value={r.key} aria-label={r.label}>
+                {r.label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={handleExport}
+            disabled={loading || stats.total === 0}
+          >
+            <Download className="w-4 h-4 mr-1.5" />
+            Export CSV
+          </Button>
+        </div>
 
         {loading ? (
           <AnalyticsSkeleton />
@@ -314,10 +244,54 @@ export default function ChatAnalytics({
               </CardContent>
             </Card>
 
+            {/* Read / Seen analytics */}
+            <Card>
+              <CardContent className="p-5">
+                <SectionTitle
+                  icon={CheckCheck}
+                  title="Read & seen analytics"
+                  subtitle="How often messages are seen by the other person"
+                />
+                <div className="grid sm:grid-cols-2 gap-4 mt-4">
+                  <ReadStatBlock
+                    title={`${selfUsername} → ${partnerUsername}`}
+                    sent={stats.selfSent}
+                    seen={stats.selfSeen}
+                    seenRate={stats.selfSeenRate}
+                  />
+                  <ReadStatBlock
+                    title={`${partnerUsername} → ${selfUsername}`}
+                    sent={stats.partnerSent}
+                    seen={stats.partnerSeen}
+                    seenRate={stats.partnerSeenRate}
+                  />
+                </div>
+                {(stats.selfUnread > 0 || stats.partnerUnread > 0) && (
+                  <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
+                    {stats.selfUnread > 0 && (
+                      <UnreadPill
+                        label={`${stats.selfUnread} of your messages still unseen`}
+                      />
+                    )}
+                    {stats.partnerUnread > 0 && (
+                      <UnreadPill
+                        label={`${stats.partnerUnread} from ${partnerUsername} still unread by you`}
+                        muted
+                      />
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             {/* Per-day chart */}
             <Card>
               <CardContent className="p-5">
-                <SectionTitle icon={BarChart3} title="Messages per day" subtitle="Last 30 active days" />
+                <SectionTitle
+                  icon={BarChart3}
+                  title="Messages per day"
+                  subtitle="Daily activity for the selected range"
+                />
                 <div className="h-56 mt-3">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={stats.perDayChart} margin={{ top: 8, right: 12, left: -16, bottom: 0 }}>
@@ -425,9 +399,9 @@ export default function ChatAnalytics({
                       <span className="text-sm text-muted-foreground font-normal ml-1">messages</span>
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Lasted {formatDuration(stats.longestSession.durationMin * 60)} •{' '}
+                      Lasted {formatDuration(stats.longestSession.durationMin * 60)}
                       {stats.longestSession.start &&
-                        format(new Date(stats.longestSession.start), 'MMM d, h:mm a')}
+                        ` • ${format(new Date(stats.longestSession.start), 'MMM d, h:mm a')}`}
                     </p>
                   </div>
                 </CardContent>
@@ -439,6 +413,234 @@ export default function ChatAnalytics({
     </Dialog>
   );
 }
+
+/* ----------------------- Stats computation ----------------------- */
+
+function computeStats(messages: MessageRow[], userId: string) {
+  const total = messages.length;
+  const selfMsgs = messages.filter((m) => m.sender_id === userId);
+  const partnerMsgs = messages.filter((m) => m.sender_id !== userId);
+  const selfCount = selfMsgs.length;
+  const partnerCount = partnerMsgs.length;
+  const selfPct = total ? Math.round((selfCount / total) * 100) : 0;
+  const partnerPct = total ? 100 - selfPct : 0;
+
+  // Read / seen analytics. In this schema, is_read=true means the receiver has read it.
+  const selfSent = selfCount;
+  const selfSeen = selfMsgs.filter((m) => m.is_read).length;
+  const selfUnread = selfSent - selfSeen;
+  const selfSeenRate = selfSent ? Math.round((selfSeen / selfSent) * 100) : 0;
+
+  const partnerSent = partnerCount;
+  const partnerSeen = partnerMsgs.filter((m) => m.is_read).length;
+  const partnerUnread = partnerSent - partnerSeen;
+  const partnerSeenRate = partnerSent ? Math.round((partnerSeen / partnerSent) * 100) : 0;
+
+  // Per-day series
+  const perDayMap = new Map<string, { date: string; self: number; partner: number }>();
+  for (const m of messages) {
+    const k = dayKey(new Date(m.created_at));
+    const row = perDayMap.get(k) ?? { date: k, self: 0, partner: 0 };
+    if (m.sender_id === userId) row.self += 1;
+    else row.partner += 1;
+    perDayMap.set(k, row);
+  }
+  const perDay = Array.from(perDayMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+  const perDayChart = perDay.map((d) => ({
+    ...d,
+    label: format(new Date(d.date), 'MMM d'),
+  }));
+
+  // Average response time. Cap at 24h to ignore overnight gaps.
+  const selfReplyDeltas: number[] = [];
+  const partnerReplyDeltas: number[] = [];
+  for (let i = 1; i < messages.length; i++) {
+    const prev = messages[i - 1];
+    const cur = messages[i];
+    if (prev.sender_id === cur.sender_id) continue;
+    const delta = differenceInSeconds(new Date(cur.created_at), new Date(prev.created_at));
+    if (delta < 0 || delta > 60 * 60 * 24) continue;
+    if (cur.sender_id === userId) selfReplyDeltas.push(delta);
+    else partnerReplyDeltas.push(delta);
+  }
+  const avg = (arr: number[]) =>
+    arr.length ? Math.round(arr.reduce((s, n) => s + n, 0) / arr.length) : 0;
+  const selfAvgReply = avg(selfReplyDeltas);
+  const partnerAvgReply = avg(partnerReplyDeltas);
+
+  let fasterPct = 50;
+  if (selfReplyDeltas.length && partnerReplyDeltas.length) {
+    const faster = partnerReplyDeltas.filter((d) => d > selfAvgReply).length;
+    fasterPct = Math.round((faster / partnerReplyDeltas.length) * 100);
+  }
+
+  // Conversation streak — consecutive days where BOTH users sent at least one message.
+  const selfDays = new Set<string>();
+  const partnerDays = new Set<string>();
+  for (const m of messages) {
+    const k = dayKey(new Date(m.created_at));
+    if (m.sender_id === userId) selfDays.add(k);
+    else partnerDays.add(k);
+  }
+  const bothDays = new Set<string>();
+  selfDays.forEach((d) => {
+    if (partnerDays.has(d)) bothDays.add(d);
+  });
+  const sortedBoth = Array.from(bothDays).sort();
+  let bestStreak = 0;
+  let runningStreak = 0;
+  let prevTs: number | null = null;
+  for (const d of sortedBoth) {
+    const ts = new Date(d).getTime();
+    if (prevTs !== null && ts - prevTs === STREAK_DAY_GAP_MS) runningStreak += 1;
+    else runningStreak = 1;
+    bestStreak = Math.max(bestStreak, runningStreak);
+    prevTs = ts;
+  }
+  let currentStreak = 0;
+  if (sortedBoth.length) {
+    const lastTs = new Date(sortedBoth[sortedBoth.length - 1]).getTime();
+    const todayKey = dayKey(new Date());
+    const yKey = dayKey(new Date(Date.now() - STREAK_DAY_GAP_MS));
+    const lastKey = sortedBoth[sortedBoth.length - 1];
+    if (lastKey === todayKey || lastKey === yKey) {
+      let s = 1;
+      let cursor = lastTs;
+      for (let i = sortedBoth.length - 2; i >= 0; i--) {
+        const t = new Date(sortedBoth[i]).getTime();
+        if (cursor - t === STREAK_DAY_GAP_MS) {
+          s += 1;
+          cursor = t;
+        } else break;
+      }
+      currentStreak = s;
+    }
+  }
+
+  // Most active time of day
+  const buckets: Record<Bucket, number> = { morning: 0, afternoon: 0, evening: 0, night: 0 };
+  for (const m of messages) {
+    buckets[bucketForHour(new Date(m.created_at).getHours())] += 1;
+  }
+  const peakBucket = (Object.entries(buckets).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'evening') as Bucket;
+
+  // Longest continuous session
+  let longestSession = { count: 0, start: '', end: '', durationMin: 0 };
+  let curCount = 0;
+  let curStartTs = 0;
+  let curLastTs = 0;
+  for (let i = 0; i < messages.length; i++) {
+    const ts = new Date(messages[i].created_at).getTime();
+    if (i === 0 || differenceInMinutes(ts, curLastTs) > SESSION_GAP_MINUTES) {
+      curStartTs = ts;
+      curCount = 1;
+    } else {
+      curCount += 1;
+    }
+    curLastTs = ts;
+    if (curCount > longestSession.count) {
+      longestSession = {
+        count: curCount,
+        start: new Date(curStartTs).toISOString(),
+        end: new Date(curLastTs).toISOString(),
+        durationMin: Math.max(1, Math.round((curLastTs - curStartTs) / 60000)),
+      };
+    }
+  }
+
+  return {
+    total,
+    selfCount,
+    partnerCount,
+    selfPct,
+    partnerPct,
+    selfSent,
+    selfSeen,
+    selfUnread,
+    selfSeenRate,
+    partnerSent,
+    partnerSeen,
+    partnerUnread,
+    partnerSeenRate,
+    perDayChart,
+    selfAvgReply,
+    partnerAvgReply,
+    fasterPct,
+    currentStreak,
+    bestStreak,
+    buckets,
+    peakBucket,
+    longestSession,
+  };
+}
+
+/* ----------------------- CSV builder ----------------------- */
+
+function csvEscape(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function buildCsvReport(args: {
+  stats: ReturnType<typeof computeStats>;
+  range: string;
+  selfUsername: string;
+  partnerUsername: string;
+}) {
+  const { stats, range, selfUsername, partnerUsername } = args;
+  const lines: (string | number)[][] = [];
+
+  lines.push(['Chat Analytics Report']);
+  lines.push(['Generated', new Date().toISOString()]);
+  lines.push(['Conversation', `${selfUsername} ↔ ${partnerUsername}`]);
+  lines.push(['Range', range]);
+  lines.push([]);
+
+  lines.push(['Section', 'Metric', 'Value']);
+  lines.push(['Overview', 'Total messages', stats.total]);
+  lines.push(['Overview', `${selfUsername} messages`, stats.selfCount]);
+  lines.push(['Overview', `${partnerUsername} messages`, stats.partnerCount]);
+  lines.push(['Overview', `${selfUsername} contribution %`, `${stats.selfPct}%`]);
+  lines.push(['Overview', `${partnerUsername} contribution %`, `${stats.partnerPct}%`]);
+
+  lines.push(['Read/Seen', `${selfUsername} sent`, stats.selfSent]);
+  lines.push(['Read/Seen', `${selfUsername} seen by ${partnerUsername}`, stats.selfSeen]);
+  lines.push(['Read/Seen', `${selfUsername} unseen`, stats.selfUnread]);
+  lines.push(['Read/Seen', `${selfUsername} seen rate`, `${stats.selfSeenRate}%`]);
+  lines.push(['Read/Seen', `${partnerUsername} sent`, stats.partnerSent]);
+  lines.push(['Read/Seen', `${partnerUsername} seen by ${selfUsername}`, stats.partnerSeen]);
+  lines.push(['Read/Seen', `${partnerUsername} unseen`, stats.partnerUnread]);
+  lines.push(['Read/Seen', `${partnerUsername} seen rate`, `${stats.partnerSeenRate}%`]);
+
+  lines.push(['Response', `${selfUsername} avg response (s)`, stats.selfAvgReply]);
+  lines.push(['Response', `${partnerUsername} avg response (s)`, stats.partnerAvgReply]);
+  lines.push(['Response', 'You reply faster than X%', `${stats.fasterPct}%`]);
+
+  lines.push(['Engagement', 'Current streak (days)', stats.currentStreak]);
+  lines.push(['Engagement', 'Best streak (days)', stats.bestStreak]);
+  lines.push(['Engagement', 'Peak time of day', stats.peakBucket]);
+  lines.push(['Engagement', 'Longest session messages', stats.longestSession.count]);
+  lines.push(['Engagement', 'Longest session duration (min)', stats.longestSession.durationMin]);
+  lines.push(['Engagement', 'Longest session started', stats.longestSession.start]);
+
+  lines.push([]);
+  lines.push(['Time of day', 'Bucket', 'Messages']);
+  (Object.keys(stats.buckets) as Bucket[]).forEach((b) => {
+    lines.push(['Time of day', b, stats.buckets[b]]);
+  });
+
+  lines.push([]);
+  lines.push(['Daily activity', 'Date', `${selfUsername}`, `${partnerUsername}`, 'Total']);
+  stats.perDayChart.forEach((d) => {
+    lines.push(['Daily activity', d.date, d.self, d.partner, d.self + d.partner]);
+  });
+
+  return lines.map((row) => row.map(csvEscape).join(',')).join('\n');
+}
+
+/* ----------------------- Sub-components ----------------------- */
 
 function SectionTitle({
   icon: Icon,
@@ -497,6 +699,85 @@ function ContributionRow({
   );
 }
 
+function ReadStatBlock({
+  title,
+  sent,
+  seen,
+  seenRate,
+}: {
+  title: string;
+  sent: number;
+  seen: number;
+  seenRate: number;
+}) {
+  const unseen = sent - seen;
+  return (
+    <div className="rounded-md border border-border p-4 bg-muted/30">
+      <p className="text-xs text-muted-foreground truncate">{title}</p>
+      <div className="mt-2 flex items-baseline gap-2">
+        <span className="text-2xl font-bold text-foreground">{seenRate}%</span>
+        <span className="text-xs text-muted-foreground">seen</span>
+      </div>
+      <Progress value={seenRate} className="mt-2" />
+      <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+        <Stat label="Sent" value={sent} />
+        <Stat label="Seen" value={seen} icon={<Eye className="w-3 h-3" />} />
+        <Stat
+          label="Unseen"
+          value={unseen}
+          icon={<EyeOff className="w-3 h-3" />}
+          tone={unseen > 0 ? 'warn' : 'default'}
+        />
+      </div>
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  icon,
+  tone = 'default',
+}: {
+  label: string;
+  value: number;
+  icon?: React.ReactNode;
+  tone?: 'default' | 'warn';
+}) {
+  return (
+    <div>
+      <p className="text-muted-foreground flex items-center gap-1">
+        {icon}
+        {label}
+      </p>
+      <p
+        className={
+          tone === 'warn' && value > 0
+            ? 'text-base font-semibold text-destructive'
+            : 'text-base font-semibold text-foreground'
+        }
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function UnreadPill({ label, muted = false }: { label: string; muted?: boolean }) {
+  return (
+    <span
+      className={
+        muted
+          ? 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-muted text-muted-foreground'
+          : 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary'
+      }
+    >
+      <EyeOff className="w-3 h-3" />
+      {label}
+    </span>
+  );
+}
+
 function PeakTimeBlock({
   buckets,
   peak,
@@ -539,11 +820,7 @@ function PeakTimeBlock({
 }
 
 function LegendDot({ color }: { color: string }) {
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <span className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
-    </span>
-  );
+  return <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: color }} />;
 }
 
 function formatDuration(seconds: number) {
@@ -563,7 +840,7 @@ function EmptyState() {
     <div className="py-10 text-center">
       <BarChart3 className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
       <p className="text-sm text-muted-foreground">
-        No messages yet. Send a few to unlock insights.
+        No messages in this range. Try a wider time window.
       </p>
     </div>
   );
@@ -573,6 +850,7 @@ function AnalyticsSkeleton() {
   return (
     <div className="grid gap-4 mt-2">
       <Skeleton className="h-32 w-full" />
+      <Skeleton className="h-40 w-full" />
       <Skeleton className="h-64 w-full" />
       <div className="grid sm:grid-cols-2 gap-4">
         <Skeleton className="h-32 w-full" />
