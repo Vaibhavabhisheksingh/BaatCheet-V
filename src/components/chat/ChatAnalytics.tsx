@@ -173,6 +173,21 @@ export default function ChatAnalytics({
     }
   };
 
+  const handleExportPdf = () => {
+    try {
+      downloadAnalyticsPdf({
+        stats,
+        rangeLabel: RANGE_OPTIONS.find((r) => r.key === range)!.label,
+        selfUsername,
+        partnerUsername,
+      });
+      toast.success('PDF report ready');
+    } catch (e) {
+      console.error(e);
+      toast.error('Could not generate PDF');
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
