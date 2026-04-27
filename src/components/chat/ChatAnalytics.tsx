@@ -216,16 +216,28 @@ export default function ChatAnalytics({
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={handleExport}
-            disabled={loading || stats.total === 0}
-          >
-            <Download className="w-4 h-4 mr-1.5" />
-            Export CSV
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={handleExport}
+              disabled={loading || stats.total === 0}
+            >
+              <Download className="w-4 h-4 mr-1.5" />
+              CSV
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="default"
+              onClick={handleExportPdf}
+              disabled={loading || stats.total === 0}
+            >
+              <FileText className="w-4 h-4 mr-1.5" />
+              PDF Report
+            </Button>
+          </div>
         </div>
 
         {loading ? (
