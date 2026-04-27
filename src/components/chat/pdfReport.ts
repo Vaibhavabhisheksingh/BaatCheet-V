@@ -295,11 +295,13 @@ function drawSeenBlock(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(18);
   doc.setTextColor(...C.text);
-  doc.text(`${rate}%`, x + 4, y + 16);
+  const valueText = `${rate}%`;
+  doc.text(valueText, x + 4, y + 16);
+  const valueWidth = doc.getTextWidth(valueText);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(...C.subtext);
-  doc.text('seen rate', x + 4 + doc.getTextWidth(`${rate}%`) + 2, y + 16);
+  doc.text('seen rate', x + 4 + valueWidth + 2, y + 16);
 
   // progress bar
   const barY = y + 20;
