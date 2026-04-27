@@ -925,6 +925,17 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
         onSelect={(id) => saveWallpaper(id)}
         onClose={() => setShowWallpaperPicker(false)}
       />
+
+      {/* Chat analytics */}
+      {user && (
+        <ChatAnalytics
+          open={showAnalytics}
+          onClose={() => setShowAnalytics(false)}
+          userId={user.id}
+          partnerId={partnerId}
+          partnerUsername={partnerUsername}
+        />
+      )}
     </div>
   );
 }
