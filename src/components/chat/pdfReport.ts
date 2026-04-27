@@ -128,7 +128,7 @@ function drawPageHeader(doc: jsPDF, args: PdfReportArgs) {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.text(
-    `${args.selfUsername}  ↔  ${args.partnerUsername}   •   ${args.rangeLabel}`,
+    `${args.selfUsername}  <->  ${args.partnerUsername}   •   ${args.rangeLabel}`,
     PAGE.w - PAGE.m,
     11,
     { align: 'right' }
