@@ -88,6 +88,11 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
   const [wallpaper, setWallpaper] = useState<string>('default');
   const [showWallpaperPicker, setShowWallpaperPicker] = useState(false);
   const [showAnalytics, setShowAnalytics] = useState(false);
+  // Message request gating
+  const [outgoingRequestStatus, setOutgoingRequestStatus] = useState<'none' | 'pending' | 'accepted' | 'ignored'>('none');
+  const [incomingRequest, setIncomingRequest] = useState<{ id: string; status: 'pending' | 'accepted' | 'ignored' } | null>(null);
+  const [partnerHasMessagedMe, setPartnerHasMessagedMe] = useState(false);
+  const [requestActionBusy, setRequestActionBusy] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
