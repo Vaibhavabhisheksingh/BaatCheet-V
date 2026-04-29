@@ -205,16 +205,66 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
     }
   }, [user, partnerId]);
 
+  const fetchRequestStatus = useCallback(async () => {
+    if (!user) return;
+    try {
+      // outgoing: me -> partner
+      const { data: outgoing } = await (supabase as any)
+        .from('message_requests')
+        .select('status')
+        .eq('requester_id', user.id)
+        .eq('recipient_id', partnerId)
+        .maybeSingle();
+      setOutgoingRequestStatus(outgoing?.status || 'none');
+
+      // incoming: partner -> me
+      const { data: incoming } = await (supabase as any)
+        .from('message_requests')
+        .select('id, status')
+        .eq('requester_id', partnerId)
+        .eq('recipient_id', user.id)
+        .maybeSingle();
+      setIncomingRequest(incoming || null);
+    } catch (err) {
+      console.warn('Failed to load request status', err);
+    }
+  }, [user, partnerId]);
+
   useEffect(() => {
     fetchMessages();
     fetchPartnerProfile();
     fetchWallpaper();
+    fetchRequestStatus();
     markMessagesAsRead();
     updateLastSeen();
 
     const interval = setInterval(updateLastSeen, 60000);
     return () => clearInterval(interval);
   }, [user, partnerId]);
+
+  // Track whether partner has ever messaged me (implicit accept)
+  useEffect(() => {
+    if (!user) return;
+    setPartnerHasMessagedMe(
+      messages.some((m) => m.sender_id === partnerId && m.receiver_id === user.id)
+    );
+  }, [messages, user, partnerId]);
+
+  // Realtime: refresh request status when it changes
+  useEffect(() => {
+    if (!user) return;
+    const channel = supabase
+      .channel(`request-status-${partnerId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'message_requests' },
+        () => fetchRequestStatus()
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, partnerId, fetchRequestStatus]);
 
   useEffect(() => {
     scrollToBottom();
