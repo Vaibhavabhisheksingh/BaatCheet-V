@@ -523,6 +523,8 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
       });
 
       if (error) throw error;
+      // Refresh request status (DB trigger may have auto-created a pending request)
+      fetchRequestStatus();
     } catch (error) {
       console.error('Error sending message:', error);
       toast.error('Failed to send message');
