@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.enforce_message_request_gate() FROM PUBLIC, anon, authenticated;
