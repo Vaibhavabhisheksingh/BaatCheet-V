@@ -835,6 +835,46 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
         </DropdownMenu>
       </header>
 
+      {/* Incoming message request banner */}
+      {showIncomingRequestBanner && (
+        <div className="px-4 py-3 border-b border-border bg-primary/5">
+          <p className="text-sm text-foreground mb-2">
+            <span className="font-semibold">{partnerUsername}</span> wants to send you a message.
+            Accept to start chatting, or ignore to block further messages.
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="amber"
+              disabled={requestActionBusy}
+              onClick={() => respondToIncomingRequest('accepted')}
+            >
+              Accept
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={requestActionBusy}
+              onClick={() => respondToIncomingRequest('ignored')}
+            >
+              Ignore
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Outgoing request status banner */}
+      {(isWaitingForAccept || isBlockedIgnored) && (
+        <div className={cn(
+          "px-4 py-2 text-xs border-b border-border",
+          isBlockedIgnored ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"
+        )}>
+          {isBlockedIgnored
+            ? `${partnerUsername} ignored your message request. You can't send more messages until they accept.`
+            : `Waiting for ${partnerUsername} to accept your message request…`}
+        </div>
+      )}
+
       {/* Messages Area */}
       <div className={cn("flex-1 overflow-y-auto p-4 space-y-2 transition-colors", getWallpaperClass(wallpaper))}>
         {messages.length === 0 ? (
