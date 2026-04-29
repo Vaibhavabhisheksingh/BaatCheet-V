@@ -888,12 +888,25 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
       {/* Outgoing request status banner */}
       {(isWaitingForAccept || isBlockedIgnored) && (
         <div className={cn(
-          "px-4 py-2 text-xs border-b border-border",
+          "px-4 py-2.5 text-xs border-b border-border flex items-center justify-between gap-3",
           isBlockedIgnored ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"
         )}>
-          {isBlockedIgnored
-            ? `${partnerUsername} ignored your message request. You can't send more messages until they accept.`
-            : `Waiting for ${partnerUsername} to accept your message request…`}
+          <span className="flex-1">
+            {isBlockedIgnored
+              ? `${partnerUsername} ignored your message request.`
+              : `Waiting for ${partnerUsername} to accept your message request…`}
+          </span>
+          {isBlockedIgnored && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              disabled={requestActionBusy}
+              onClick={retryAfterIgnore}
+            >
+              Send new request
+            </Button>
+          )}
         </div>
       )}
 
