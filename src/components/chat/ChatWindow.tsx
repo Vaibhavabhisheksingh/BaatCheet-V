@@ -538,6 +538,15 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
   const sendVoiceMessage = async (blob: Blob, duration: number) => {
     if (!user) return;
 
+    if (!canSendNow) {
+      toast.error(
+        isBlockedIgnored
+          ? `${partnerUsername} ignored your request.`
+          : `Waiting for ${partnerUsername} to accept your message request.`
+      );
+      return;
+    }
+
     setIsUploading(true);
     try {
       // Derive extension from the actual recorded blob mime type
