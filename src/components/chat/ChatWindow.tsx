@@ -481,6 +481,21 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
     e.preventDefault();
     if ((!newMessage.trim() && !selectedFile) || !user || isSending) return;
 
+    // Gate: enforce request flow client-side (DB also enforces)
+    if (outgoingRequestStatus === 'ignored' && !partnerHasMessagedMe && incomingRequest?.status !== 'accepted') {
+      toast.error(`${partnerUsername} ignored your message request. You can't send messages until they accept.`);
+      return;
+    }
+    if (
+      outgoingRequestStatus === 'pending' &&
+      !partnerHasMessagedMe &&
+      incomingRequest?.status !== 'accepted' &&
+      messages.some((m) => m.sender_id === user.id)
+    ) {
+      toast.error(`Waiting for ${partnerUsername} to accept your message request.`);
+      return;
+    }
+
     const messageContent = newMessage.trim();
     setNewMessage('');
     setIsSending(true);
