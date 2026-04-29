@@ -686,6 +686,40 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
     return 'offline';
   };
 
+  // Message-request gating
+  const isAccepted =
+    partnerHasMessagedMe ||
+    outgoingRequestStatus === 'accepted' ||
+    incomingRequest?.status === 'accepted';
+  const myMessagesCount = messages.filter((m) => m.sender_id === user?.id).length;
+  const canSendNow =
+    isAccepted ||
+    (outgoingRequestStatus === 'none' && myMessagesCount === 0) ||
+    (outgoingRequestStatus === 'pending' && myMessagesCount === 0);
+  const isBlockedIgnored = outgoingRequestStatus === 'ignored' && !isAccepted;
+  const isWaitingForAccept =
+    outgoingRequestStatus === 'pending' && !isAccepted && myMessagesCount > 0;
+  const showIncomingRequestBanner = incomingRequest?.status === 'pending';
+
+  const respondToIncomingRequest = async (status: 'accepted' | 'ignored') => {
+    if (!incomingRequest) return;
+    setRequestActionBusy(true);
+    try {
+      const { error } = await (supabase as any)
+        .from('message_requests')
+        .update({ status, responded_at: new Date().toISOString() })
+        .eq('id', incomingRequest.id);
+      if (error) throw error;
+      toast.success(status === 'accepted' ? 'Request accepted' : 'Request ignored');
+      setIncomingRequest({ ...incomingRequest, status });
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err?.message || 'Failed to update request');
+    } finally {
+      setRequestActionBusy(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center">
