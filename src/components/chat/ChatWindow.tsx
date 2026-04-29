@@ -88,6 +88,11 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
   const [wallpaper, setWallpaper] = useState<string>('default');
   const [showWallpaperPicker, setShowWallpaperPicker] = useState(false);
   const [showAnalytics, setShowAnalytics] = useState(false);
+  // Message request gating
+  const [outgoingRequestStatus, setOutgoingRequestStatus] = useState<'none' | 'pending' | 'accepted' | 'ignored'>('none');
+  const [incomingRequest, setIncomingRequest] = useState<{ id: string; status: 'pending' | 'accepted' | 'ignored' } | null>(null);
+  const [partnerHasMessagedMe, setPartnerHasMessagedMe] = useState(false);
+  const [requestActionBusy, setRequestActionBusy] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -200,16 +205,66 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
     }
   }, [user, partnerId]);
 
+  const fetchRequestStatus = useCallback(async () => {
+    if (!user) return;
+    try {
+      // outgoing: me -> partner
+      const { data: outgoing } = await (supabase as any)
+        .from('message_requests')
+        .select('status')
+        .eq('requester_id', user.id)
+        .eq('recipient_id', partnerId)
+        .maybeSingle();
+      setOutgoingRequestStatus(outgoing?.status || 'none');
+
+      // incoming: partner -> me
+      const { data: incoming } = await (supabase as any)
+        .from('message_requests')
+        .select('id, status')
+        .eq('requester_id', partnerId)
+        .eq('recipient_id', user.id)
+        .maybeSingle();
+      setIncomingRequest(incoming || null);
+    } catch (err) {
+      console.warn('Failed to load request status', err);
+    }
+  }, [user, partnerId]);
+
   useEffect(() => {
     fetchMessages();
     fetchPartnerProfile();
     fetchWallpaper();
+    fetchRequestStatus();
     markMessagesAsRead();
     updateLastSeen();
 
     const interval = setInterval(updateLastSeen, 60000);
     return () => clearInterval(interval);
   }, [user, partnerId]);
+
+  // Track whether partner has ever messaged me (implicit accept)
+  useEffect(() => {
+    if (!user) return;
+    setPartnerHasMessagedMe(
+      messages.some((m) => m.sender_id === partnerId && m.receiver_id === user.id)
+    );
+  }, [messages, user, partnerId]);
+
+  // Realtime: refresh request status when it changes
+  useEffect(() => {
+    if (!user) return;
+    const channel = supabase
+      .channel(`request-status-${partnerId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'message_requests' },
+        () => fetchRequestStatus()
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, partnerId, fetchRequestStatus]);
 
   useEffect(() => {
     scrollToBottom();
@@ -426,6 +481,21 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
     e.preventDefault();
     if ((!newMessage.trim() && !selectedFile) || !user || isSending) return;
 
+    // Gate: enforce request flow client-side (DB also enforces)
+    if (outgoingRequestStatus === 'ignored' && !partnerHasMessagedMe && incomingRequest?.status !== 'accepted') {
+      toast.error(`${partnerUsername} ignored your message request. You can't send messages until they accept.`);
+      return;
+    }
+    if (
+      outgoingRequestStatus === 'pending' &&
+      !partnerHasMessagedMe &&
+      incomingRequest?.status !== 'accepted' &&
+      messages.some((m) => m.sender_id === user.id)
+    ) {
+      toast.error(`Waiting for ${partnerUsername} to accept your message request.`);
+      return;
+    }
+
     const messageContent = newMessage.trim();
     setNewMessage('');
     setIsSending(true);
@@ -453,6 +523,8 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
       });
 
       if (error) throw error;
+      // Refresh request status (DB trigger may have auto-created a pending request)
+      fetchRequestStatus();
     } catch (error) {
       console.error('Error sending message:', error);
       toast.error('Failed to send message');
@@ -465,6 +537,15 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
 
   const sendVoiceMessage = async (blob: Blob, duration: number) => {
     if (!user) return;
+
+    if (!canSendNow) {
+      toast.error(
+        isBlockedIgnored
+          ? `${partnerUsername} ignored your request.`
+          : `Waiting for ${partnerUsername} to accept your message request.`
+      );
+      return;
+    }
 
     setIsUploading(true);
     try {
@@ -491,6 +572,7 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
       });
 
       if (error) throw error;
+      fetchRequestStatus();
       setShowVoiceRecorder(false);
     } catch (error: any) {
       console.error('Error sending voice message:', error);
@@ -631,6 +713,40 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
     return 'offline';
   };
 
+  // Message-request gating
+  const isAccepted =
+    partnerHasMessagedMe ||
+    outgoingRequestStatus === 'accepted' ||
+    incomingRequest?.status === 'accepted';
+  const myMessagesCount = messages.filter((m) => m.sender_id === user?.id).length;
+  const canSendNow =
+    isAccepted ||
+    (outgoingRequestStatus === 'none' && myMessagesCount === 0) ||
+    (outgoingRequestStatus === 'pending' && myMessagesCount === 0);
+  const isBlockedIgnored = outgoingRequestStatus === 'ignored' && !isAccepted;
+  const isWaitingForAccept =
+    outgoingRequestStatus === 'pending' && !isAccepted && myMessagesCount > 0;
+  const showIncomingRequestBanner = incomingRequest?.status === 'pending';
+
+  const respondToIncomingRequest = async (status: 'accepted' | 'ignored') => {
+    if (!incomingRequest) return;
+    setRequestActionBusy(true);
+    try {
+      const { error } = await (supabase as any)
+        .from('message_requests')
+        .update({ status, responded_at: new Date().toISOString() })
+        .eq('id', incomingRequest.id);
+      if (error) throw error;
+      toast.success(status === 'accepted' ? 'Request accepted' : 'Request ignored');
+      setIncomingRequest({ ...incomingRequest, status });
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err?.message || 'Failed to update request');
+    } finally {
+      setRequestActionBusy(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -718,6 +834,46 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
           </DropdownMenuContent>
         </DropdownMenu>
       </header>
+
+      {/* Incoming message request banner */}
+      {showIncomingRequestBanner && (
+        <div className="px-4 py-3 border-b border-border bg-primary/5">
+          <p className="text-sm text-foreground mb-2">
+            <span className="font-semibold">{partnerUsername}</span> wants to send you a message.
+            Accept to start chatting, or ignore to block further messages.
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="amber"
+              disabled={requestActionBusy}
+              onClick={() => respondToIncomingRequest('accepted')}
+            >
+              Accept
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={requestActionBusy}
+              onClick={() => respondToIncomingRequest('ignored')}
+            >
+              Ignore
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Outgoing request status banner */}
+      {(isWaitingForAccept || isBlockedIgnored) && (
+        <div className={cn(
+          "px-4 py-2 text-xs border-b border-border",
+          isBlockedIgnored ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"
+        )}>
+          {isBlockedIgnored
+            ? `${partnerUsername} ignored your message request. You can't send more messages until they accept.`
+            : `Waiting for ${partnerUsername} to accept your message request…`}
+        </div>
+      )}
 
       {/* Messages Area */}
       <div className={cn("flex-1 overflow-y-auto p-4 space-y-2 transition-colors", getWallpaperClass(wallpaper))}>
@@ -843,7 +999,7 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
               variant="ghost"
               size="icon"
               onClick={() => fileInputRef.current?.click()}
-              disabled={isUploading}
+              disabled={isUploading || !canSendNow}
             >
               <Image className="w-5 h-5 text-muted-foreground" />
             </Button>
@@ -852,24 +1008,32 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
               variant="ghost"
               size="icon"
               onClick={() => setShowVoiceRecorder(true)}
-              disabled={isUploading}
+              disabled={isUploading || !canSendNow}
             >
               <Mic className="w-5 h-5 text-muted-foreground" />
             </Button>
             <Input
               type="text"
-              placeholder={`Message ${partnerUsername}...`}
+              placeholder={
+                isBlockedIgnored
+                  ? `${partnerUsername} ignored your request`
+                  : isWaitingForAccept
+                  ? `Waiting for ${partnerUsername} to accept…`
+                  : (!isAccepted && myMessagesCount === 0)
+                  ? `Send a message request to ${partnerUsername}…`
+                  : `Message ${partnerUsername}...`
+              }
               value={newMessage}
               onChange={handleInputChange}
               className="flex-1"
               maxLength={2000}
-              disabled={isUploading}
+              disabled={isUploading || !canSendNow}
             />
             <Button 
               type="submit" 
               variant="amber" 
               size="icon"
-              disabled={(!newMessage.trim() && !selectedFile) || isSending}
+              disabled={(!newMessage.trim() && !selectedFile) || isSending || !canSendNow}
             >
               {isUploading ? (
                 <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />

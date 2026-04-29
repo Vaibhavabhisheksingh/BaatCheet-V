@@ -14,6 +14,7 @@ import ChatList from '@/components/chat/ChatList';
 import ChatWindow from '@/components/chat/ChatWindow';
 import UserSearch from '@/components/chat/UserSearch';
 import ProfileView from '@/components/chat/ProfileView';
+import MessageRequests from '@/components/chat/MessageRequests';
 
 interface SelectedChat {
   partnerId: string;
@@ -102,7 +103,11 @@ export default function Chat() {
 
         {/* Chat List */}
         <div className="flex-1 overflow-y-auto px-2">
-          <div className="px-2 mb-2">
+          <div className="px-2 mb-2 mt-1 flex items-center justify-between">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Requests</span>
+          </div>
+          <MessageRequests onOpenChat={handleSelectConversation} />
+          <div className="px-2 mb-2 mt-3">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Messages</span>
           </div>
           <ChatList 

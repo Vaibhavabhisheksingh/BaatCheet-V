@@ -73,6 +73,36 @@ export type Database = {
           },
         ]
       }
+      message_requests: {
+        Row: {
+          created_at: string
+          id: string
+          recipient_id: string
+          requester_id: string
+          responded_at: string | null
+          status: Database["public"]["Enums"]["message_request_status"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          recipient_id: string
+          requester_id: string
+          responded_at?: string | null
+          status?: Database["public"]["Enums"]["message_request_status"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          recipient_id?: string
+          requester_id?: string
+          responded_at?: string | null
+          status?: Database["public"]["Enums"]["message_request_status"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
       messages: {
         Row: {
           content: string
@@ -167,7 +197,7 @@ export type Database = {
       update_last_seen: { Args: never; Returns: undefined }
     }
     Enums: {
-      [_ in never]: never
+      message_request_status: "pending" | "accepted" | "ignored"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -294,6 +324,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      message_request_status: ["pending", "accepted", "ignored"],
+    },
   },
 } as const
