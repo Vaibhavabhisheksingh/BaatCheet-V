@@ -999,7 +999,7 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
               variant="ghost"
               size="icon"
               onClick={() => fileInputRef.current?.click()}
-              disabled={isUploading}
+              disabled={isUploading || !canSendNow}
             >
               <Image className="w-5 h-5 text-muted-foreground" />
             </Button>
@@ -1008,24 +1008,32 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
               variant="ghost"
               size="icon"
               onClick={() => setShowVoiceRecorder(true)}
-              disabled={isUploading}
+              disabled={isUploading || !canSendNow}
             >
               <Mic className="w-5 h-5 text-muted-foreground" />
             </Button>
             <Input
               type="text"
-              placeholder={`Message ${partnerUsername}...`}
+              placeholder={
+                isBlockedIgnored
+                  ? `${partnerUsername} ignored your request`
+                  : isWaitingForAccept
+                  ? `Waiting for ${partnerUsername} to accept…`
+                  : (!isAccepted && myMessagesCount === 0)
+                  ? `Send a message request to ${partnerUsername}…`
+                  : `Message ${partnerUsername}...`
+              }
               value={newMessage}
               onChange={handleInputChange}
               className="flex-1"
               maxLength={2000}
-              disabled={isUploading}
+              disabled={isUploading || !canSendNow}
             />
             <Button 
               type="submit" 
               variant="amber" 
               size="icon"
-              disabled={(!newMessage.trim() && !selectedFile) || isSending}
+              disabled={(!newMessage.trim() && !selectedFile) || isSending || !canSendNow}
             >
               {isUploading ? (
                 <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
