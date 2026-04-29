@@ -572,6 +572,7 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
       });
 
       if (error) throw error;
+      fetchRequestStatus();
       setShowVoiceRecorder(false);
     } catch (error: any) {
       console.error('Error sending voice message:', error);
