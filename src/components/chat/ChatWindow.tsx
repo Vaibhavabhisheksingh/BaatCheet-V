@@ -240,6 +240,18 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
     markMessagesAsRead();
     updateLastSeen();
 
+    // Determine admin status of self and partner
+    (async () => {
+      const { data: partnerRole } = await supabase
+        .from('user_roles').select('role').eq('user_id', partnerId).eq('role', 'admin').maybeSingle();
+      setPartnerIsAdmin(!!partnerRole);
+      if (user) {
+        const { data: myRole } = await supabase
+          .from('user_roles').select('role').eq('user_id', user.id).eq('role', 'admin').maybeSingle();
+        setIAmAdmin(!!myRole);
+      }
+    })();
+
     const interval = setInterval(updateLastSeen, 60000);
     return () => clearInterval(interval);
   }, [user, partnerId]);
