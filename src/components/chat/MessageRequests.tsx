@@ -46,6 +46,7 @@ export default function MessageRequests({ onOpenChat }: MessageRequestsProps) {
       if (error) throw error;
 
       const rows: RequestRow[] = data || [];
+      let adminIds = new Set<string>();
 
       if (rows.length > 0) {
         const ids = rows.map((r) => r.requester_id);
@@ -60,7 +61,7 @@ export default function MessageRequests({ onOpenChat }: MessageRequestsProps) {
           .select('user_id')
           .eq('role', 'admin')
           .in('user_id', ids);
-        const adminIds = new Set((adminRoles || []).map((r: any) => r.user_id));
+        adminIds = new Set((adminRoles || []).map((r: any) => r.user_id));
 
         const profMap = new Map(
           (profs || []).map((p: any) => [p.user_id, p])
