@@ -119,8 +119,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email,
       password,
     });
+    if (error) return { error };
 
-    return { error };
+    // Block sign-in for blocked accounts
+    const { data: { user: signedInUser } } = await supabase.auth.getUser();
+    if (signedInUser) {
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('is_blocked')
+        .eq('user_id', signedInUser.id)
+        .maybeSingle();
+      if (prof?.is_blocked) {
+        await supabase.auth.signOut();
+        return { error: new Error('Your account has been blocked by an administrator.') };
+      }
+    }
+    return { error: null };
   };
 
   const signOut = async () => {

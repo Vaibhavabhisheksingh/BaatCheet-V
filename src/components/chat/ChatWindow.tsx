@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Send, ArrowLeft, Image, X, Mic, MoreVertical, Trash2, Palette, BarChart3 } from 'lucide-react';
+import { Send, ArrowLeft, Image, X, Mic, MoreVertical, Trash2, Palette, BarChart3, Shield } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -93,6 +93,8 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
   const [incomingRequest, setIncomingRequest] = useState<{ id: string; status: 'pending' | 'accepted' | 'ignored' } | null>(null);
   const [partnerHasMessagedMe, setPartnerHasMessagedMe] = useState(false);
   const [requestActionBusy, setRequestActionBusy] = useState(false);
+  const [partnerIsAdmin, setPartnerIsAdmin] = useState(false);
+  const [iAmAdmin, setIAmAdmin] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -237,6 +239,18 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
     fetchRequestStatus();
     markMessagesAsRead();
     updateLastSeen();
+
+    // Determine admin status of self and partner
+    (async () => {
+      const { data: partnerRole } = await supabase
+        .from('user_roles').select('role').eq('user_id', partnerId).eq('role', 'admin').maybeSingle();
+      setPartnerIsAdmin(!!partnerRole);
+      if (user) {
+        const { data: myRole } = await supabase
+          .from('user_roles').select('role').eq('user_id', user.id).eq('role', 'admin').maybeSingle();
+        setIAmAdmin(!!myRole);
+      }
+    })();
 
     const interval = setInterval(updateLastSeen, 60000);
     return () => clearInterval(interval);
@@ -714,19 +728,23 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
   };
 
   // Message-request gating
+  const cannotReplyToAdmin = partnerIsAdmin && !iAmAdmin;
   const isAccepted =
+    iAmAdmin || // admin can always send
     partnerHasMessagedMe ||
     outgoingRequestStatus === 'accepted' ||
     incomingRequest?.status === 'accepted';
   const myMessagesCount = messages.filter((m) => m.sender_id === user?.id).length;
   const canSendNow =
-    isAccepted ||
-    (outgoingRequestStatus === 'none' && myMessagesCount === 0) ||
-    (outgoingRequestStatus === 'pending' && myMessagesCount === 0);
-  const isBlockedIgnored = outgoingRequestStatus === 'ignored' && !isAccepted;
+    !cannotReplyToAdmin && (
+      isAccepted ||
+      (outgoingRequestStatus === 'none' && myMessagesCount === 0) ||
+      (outgoingRequestStatus === 'pending' && myMessagesCount === 0)
+    );
+  const isBlockedIgnored = !cannotReplyToAdmin && outgoingRequestStatus === 'ignored' && !isAccepted;
   const isWaitingForAccept =
-    outgoingRequestStatus === 'pending' && !isAccepted && myMessagesCount > 0;
-  const showIncomingRequestBanner = incomingRequest?.status === 'pending';
+    !cannotReplyToAdmin && outgoingRequestStatus === 'pending' && !isAccepted && myMessagesCount > 0;
+  const showIncomingRequestBanner = !iAmAdmin && incomingRequest?.status === 'pending';
 
   const respondToIncomingRequest = async (status: 'accepted' | 'ignored') => {
     if (!incomingRequest) return;
@@ -882,6 +900,14 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
               Ignore
             </Button>
           </div>
+        </div>
+      )}
+
+      {/* Admin broadcast notice */}
+      {cannotReplyToAdmin && (
+        <div className="px-4 py-2.5 text-xs border-b border-border bg-primary/10 text-foreground flex items-center gap-2">
+          <Shield className="w-3.5 h-3.5 text-primary" />
+          <span>This is an official message from the BaatCheet administrator. Replies are disabled.</span>
         </div>
       )}
 
@@ -1050,7 +1076,9 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
             <Input
               type="text"
               placeholder={
-                isBlockedIgnored
+                cannotReplyToAdmin
+                  ? `You can't reply to ${partnerUsername}`
+                  : isBlockedIgnored
                   ? `${partnerUsername} ignored your request`
                   : isWaitingForAccept
                   ? `Waiting for ${partnerUsername} to accept…`

@@ -145,6 +145,7 @@ export type Database = {
           created_at: string
           email: string
           id: string
+          is_blocked: boolean
           last_seen: string | null
           profile_image: string | null
           updated_at: string
@@ -156,6 +157,7 @@ export type Database = {
           created_at?: string
           email: string
           id?: string
+          is_blocked?: boolean
           last_seen?: string | null
           profile_image?: string | null
           updated_at?: string
@@ -167,11 +169,33 @@ export type Database = {
           created_at?: string
           email?: string
           id?: string
+          is_blocked?: boolean
           last_seen?: string | null
           profile_image?: string | null
           updated_at?: string
           user_id?: string
           username?: string
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
         }
         Relationships: []
       }
@@ -194,9 +218,18 @@ export type Database = {
           unread_count: number
         }[]
       }
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
+      is_admin: { Args: { _user_id: string }; Returns: boolean }
       update_last_seen: { Args: never; Returns: undefined }
     }
     Enums: {
+      app_role: "admin" | "user"
       message_request_status: "pending" | "accepted" | "ignored"
     }
     CompositeTypes: {
@@ -325,6 +358,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      app_role: ["admin", "user"],
       message_request_status: ["pending", "accepted", "ignored"],
     },
   },
