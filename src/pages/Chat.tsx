@@ -31,6 +31,21 @@ export default function Chat() {
   const [showUserSearch, setShowUserSearch] = useState(false);
   const [selectedChat, setSelectedChat] = useState<SelectedChat | null>(null);
   const [showOwnProfile, setShowOwnProfile] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+
+  useEffect(() => {
+    if (!user) { setIsAdmin(false); return; }
+    (async () => {
+      const { data } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id)
+        .eq('role', 'admin')
+        .maybeSingle();
+      setIsAdmin(!!data);
+    })();
+  }, [user]);
 
   useEffect(() => {
     if (!loading && !user) {
