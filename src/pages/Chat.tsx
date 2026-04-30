@@ -8,13 +8,16 @@ import {
   Search, 
   Settings, 
   LogOut, 
-  Plus
+  Plus,
+  Shield
 } from 'lucide-react';
 import ChatList from '@/components/chat/ChatList';
 import ChatWindow from '@/components/chat/ChatWindow';
 import UserSearch from '@/components/chat/UserSearch';
 import ProfileView from '@/components/chat/ProfileView';
 import MessageRequests from '@/components/chat/MessageRequests';
+import AdminPanel from '@/components/chat/AdminPanel';
+import { supabase } from '@/integrations/supabase/client';
 
 interface SelectedChat {
   partnerId: string;
