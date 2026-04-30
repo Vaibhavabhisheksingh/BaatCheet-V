@@ -903,6 +903,14 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
         </div>
       )}
 
+      {/* Admin broadcast notice */}
+      {cannotReplyToAdmin && (
+        <div className="px-4 py-2.5 text-xs border-b border-border bg-primary/10 text-foreground flex items-center gap-2">
+          <Shield className="w-3.5 h-3.5 text-primary" />
+          <span>This is an official message from the BaatCheet administrator. Replies are disabled.</span>
+        </div>
+      )}
+
       {/* Outgoing request status banner */}
       {(isWaitingForAccept || isBlockedIgnored) && (
         <div className={cn(
