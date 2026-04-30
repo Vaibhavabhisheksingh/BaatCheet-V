@@ -240,6 +240,9 @@ export default function Chat() {
           onClose={() => setShowOwnProfile(false)}
         />
       )}
+
+      {/* Admin Panel */}
+      <AdminPanel open={showAdminPanel} onClose={() => setShowAdminPanel(false)} />
     </div>
   );
 }
