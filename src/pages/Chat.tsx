@@ -97,13 +97,24 @@ export default function Chat() {
             </div>
             <span className="font-bold text-lg text-foreground tracking-tight">BAATCHEET</span>
           </div>
-          <button
-            onClick={() => setShowUserSearch(true)}
-            className="p-2 text-muted-foreground hover:text-primary transition-colors rounded-md hover:bg-muted"
-            title="New chat"
-          >
-            <Plus className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            {isAdmin && (
+              <button
+                onClick={() => setShowAdminPanel(true)}
+                className="p-2 text-primary hover:opacity-80 transition-opacity rounded-md hover:bg-muted"
+                title="Admin panel"
+              >
+                <Shield className="w-5 h-5" />
+              </button>
+            )}
+            <button
+              onClick={() => setShowUserSearch(true)}
+              className="p-2 text-muted-foreground hover:text-primary transition-colors rounded-md hover:bg-muted"
+              title="New chat"
+            >
+              <Plus className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Search */}
