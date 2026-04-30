@@ -728,19 +728,23 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
   };
 
   // Message-request gating
+  const cannotReplyToAdmin = partnerIsAdmin && !iAmAdmin;
   const isAccepted =
+    iAmAdmin || // admin can always send
     partnerHasMessagedMe ||
     outgoingRequestStatus === 'accepted' ||
     incomingRequest?.status === 'accepted';
   const myMessagesCount = messages.filter((m) => m.sender_id === user?.id).length;
   const canSendNow =
-    isAccepted ||
-    (outgoingRequestStatus === 'none' && myMessagesCount === 0) ||
-    (outgoingRequestStatus === 'pending' && myMessagesCount === 0);
-  const isBlockedIgnored = outgoingRequestStatus === 'ignored' && !isAccepted;
+    !cannotReplyToAdmin && (
+      isAccepted ||
+      (outgoingRequestStatus === 'none' && myMessagesCount === 0) ||
+      (outgoingRequestStatus === 'pending' && myMessagesCount === 0)
+    );
+  const isBlockedIgnored = !cannotReplyToAdmin && outgoingRequestStatus === 'ignored' && !isAccepted;
   const isWaitingForAccept =
-    outgoingRequestStatus === 'pending' && !isAccepted && myMessagesCount > 0;
-  const showIncomingRequestBanner = incomingRequest?.status === 'pending';
+    !cannotReplyToAdmin && outgoingRequestStatus === 'pending' && !isAccepted && myMessagesCount > 0;
+  const showIncomingRequestBanner = !iAmAdmin && incomingRequest?.status === 'pending';
 
   const respondToIncomingRequest = async (status: 'accepted' | 'ignored') => {
     if (!incomingRequest) return;
