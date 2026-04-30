@@ -93,6 +93,8 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
   const [incomingRequest, setIncomingRequest] = useState<{ id: string; status: 'pending' | 'accepted' | 'ignored' } | null>(null);
   const [partnerHasMessagedMe, setPartnerHasMessagedMe] = useState(false);
   const [requestActionBusy, setRequestActionBusy] = useState(false);
+  const [partnerIsAdmin, setPartnerIsAdmin] = useState(false);
+  const [iAmAdmin, setIAmAdmin] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
