@@ -744,7 +744,8 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
   const isBlockedIgnored = !cannotReplyToAdmin && outgoingRequestStatus === 'ignored' && !isAccepted;
   const isWaitingForAccept =
     !cannotReplyToAdmin && outgoingRequestStatus === 'pending' && !isAccepted && myMessagesCount > 0;
-  const showIncomingRequestBanner = !iAmAdmin && incomingRequest?.status === 'pending';
+  // Hide request banner when partner is admin — admin messages are direct, not requests
+  const showIncomingRequestBanner = !iAmAdmin && !partnerIsAdmin && incomingRequest?.status === 'pending';
 
   const respondToIncomingRequest = async (status: 'accepted' | 'ignored') => {
     if (!incomingRequest) return;
