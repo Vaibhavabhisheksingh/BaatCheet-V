@@ -46,6 +46,7 @@ export default function MessageRequests({ onOpenChat }: MessageRequestsProps) {
       if (error) throw error;
 
       const rows: RequestRow[] = data || [];
+      let adminIds = new Set<string>();
 
       if (rows.length > 0) {
         const ids = rows.map((r) => r.requester_id);
@@ -53,6 +54,14 @@ export default function MessageRequests({ onOpenChat }: MessageRequestsProps) {
           .from('profiles')
           .select('user_id, username, profile_image, bio')
           .in('user_id', ids);
+
+        // Exclude admin requesters — admin messages are direct, never requests
+        const { data: adminRoles } = await (supabase as any)
+          .from('user_roles')
+          .select('user_id')
+          .eq('role', 'admin')
+          .in('user_id', ids);
+        adminIds = new Set((adminRoles || []).map((r: any) => r.user_id));
 
         const profMap = new Map(
           (profs || []).map((p: any) => [p.user_id, p])
@@ -82,7 +91,7 @@ export default function MessageRequests({ onOpenChat }: MessageRequestsProps) {
         });
       }
 
-      setRequests(rows);
+      setRequests(rows.filter((r) => !adminIds.has(r.requester_id)));
     } catch (err) {
       console.error('Failed to load requests', err);
     } finally {
