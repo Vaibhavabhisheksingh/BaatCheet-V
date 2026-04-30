@@ -90,7 +90,7 @@ export default function MessageRequests({ onOpenChat }: MessageRequestsProps) {
         });
       }
 
-      setRequests(rows);
+      setRequests(rows.filter((r) => !adminIds.has(r.requester_id)));
     } catch (err) {
       console.error('Failed to load requests', err);
     } finally {
