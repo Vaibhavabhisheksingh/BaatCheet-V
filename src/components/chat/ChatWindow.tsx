@@ -1076,7 +1076,9 @@ export default function ChatWindow({ partnerId, partnerUsername, partnerImage, o
             <Input
               type="text"
               placeholder={
-                isBlockedIgnored
+                cannotReplyToAdmin
+                  ? `You can't reply to ${partnerUsername}`
+                  : isBlockedIgnored
                   ? `${partnerUsername} ignored your request`
                   : isWaitingForAccept
                   ? `Waiting for ${partnerUsername} to accept…`
