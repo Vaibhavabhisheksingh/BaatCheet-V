@@ -54,6 +54,14 @@ export default function MessageRequests({ onOpenChat }: MessageRequestsProps) {
           .select('user_id, username, profile_image, bio')
           .in('user_id', ids);
 
+        // Exclude admin requesters — admin messages are direct, never requests
+        const { data: adminRoles } = await (supabase as any)
+          .from('user_roles')
+          .select('user_id')
+          .eq('role', 'admin')
+          .in('user_id', ids);
+        const adminIds = new Set((adminRoles || []).map((r: any) => r.user_id));
+
         const profMap = new Map(
           (profs || []).map((p: any) => [p.user_id, p])
         );
