@@ -164,75 +164,125 @@ export default function MessageRequests({ onOpenChat }: MessageRequestsProps) {
     );
   }
 
-  if (requests.length === 0) {
+  const renderRow = (req: RequestRow) => {
+    const isIncoming = req.recipient_id === user?.id;
+    const partnerName = req.requester?.username || 'Unknown user';
     return (
-      <div className="px-4 py-3 text-xs text-muted-foreground">
-        No pending requests
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-1">
-      {requests.map((req) => (
-        <div
-          key={req.id}
-          className={cn(
-            'px-3 py-3 rounded-lg bg-sidebar-accent/40 hover:bg-sidebar-accent transition-colors'
-          )}
-        >
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
-              {req.requester?.profile_image ? (
-                <img
-                  src={req.requester.profile_image}
-                  alt={req.requester.username}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <span className="text-primary font-semibold">
-                  {req.requester?.username?.[0]?.toUpperCase() || '?'}
-                </span>
-              )}
+      <div
+        key={req.id}
+        className={cn(
+          'px-3 py-3 rounded-lg bg-sidebar-accent/40 hover:bg-sidebar-accent transition-colors'
+        )}
+      >
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
+            {req.requester?.profile_image ? (
+              <img src={req.requester.profile_image} alt={partnerName} className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-primary font-semibold">{partnerName[0]?.toUpperCase() || '?'}</span>
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-medium text-sm text-foreground truncate">
+                {isIncoming ? partnerName : `To: ${partnerName}`}
+              </p>
+              <span className="text-[10px] text-muted-foreground flex-shrink-0">
+                {formatDistanceToNow(new Date(req.created_at), { addSuffix: true })}
+              </span>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-2">
-                <p className="font-medium text-sm text-foreground truncate">
-                  {req.requester?.username || 'Unknown user'}
-                </p>
-                <span className="text-[10px] text-muted-foreground flex-shrink-0">
-                  {formatDistanceToNow(new Date(req.created_at), {
-                    addSuffix: true,
-                  })}
-                </span>
-              </div>
-              {req.preview && (
-                <p className="text-xs text-muted-foreground truncate mt-0.5">
-                  {req.preview}
-                </p>
+            {req.preview && (
+              <p className="text-xs text-muted-foreground truncate mt-0.5">{req.preview}</p>
+            )}
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <span
+                className={cn(
+                  'text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider',
+                  req.status === 'pending' && 'bg-muted text-muted-foreground',
+                  req.status === 'accepted' && 'bg-primary/15 text-primary',
+                  req.status === 'ignored' && 'bg-destructive/15 text-destructive'
+                )}
+              >
+                {req.status}
+              </span>
+              {isIncoming && req.status === 'pending' && (
+                <>
+                  <button
+                    onClick={() => respond(req, 'accepted')}
+                    disabled={busyId === req.id}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md gradient-amber text-primary-foreground text-xs font-medium hover:opacity-90 disabled:opacity-60"
+                  >
+                    <Check className="w-3 h-3" /> Accept
+                  </button>
+                  <button
+                    onClick={() => respond(req, 'ignored')}
+                    disabled={busyId === req.id}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-muted text-muted-foreground text-xs font-medium hover:bg-muted/80 hover:text-foreground disabled:opacity-60"
+                  >
+                    <X className="w-3 h-3" /> Ignore
+                  </button>
+                </>
               )}
-              <div className="flex items-center gap-2 mt-2">
+              {isIncoming && req.status === 'ignored' && (
                 <button
                   onClick={() => respond(req, 'accepted')}
                   disabled={busyId === req.id}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md gradient-amber text-primary-foreground text-xs font-medium hover:opacity-90 disabled:opacity-60"
-                >
-                  <Check className="w-3 h-3" />
-                  Accept
-                </button>
-                <button
-                  onClick={() => respond(req, 'ignored')}
-                  disabled={busyId === req.id}
                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-muted text-muted-foreground text-xs font-medium hover:bg-muted/80 hover:text-foreground disabled:opacity-60"
                 >
-                  <X className="w-3 h-3" />
-                  Ignore
+                  <RotateCcw className="w-3 h-3" /> Accept now
                 </button>
-              </div>
+              )}
+              {req.status === 'accepted' && req.requester && (
+                <button
+                  onClick={() => {
+                    const partnerId = req.requester_id === user?.id ? req.recipient_id : req.requester_id;
+                    onOpenChat(partnerId, req.requester!.username, req.requester!.profile_image);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-muted text-muted-foreground text-xs font-medium hover:bg-muted/80 hover:text-foreground"
+                >
+                  Open chat
+                </button>
+              )}
             </div>
           </div>
         </div>
-      ))}
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-1 px-2">
+        <button
+          onClick={() => setFilter('pending')}
+          className={cn(
+            'flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-colors',
+            filter === 'pending'
+              ? 'bg-primary/15 text-primary'
+              : 'text-muted-foreground hover:bg-muted/50'
+          )}
+        >
+          <Inbox className="w-3 h-3" /> Pending {pending.length > 0 && `(${pending.length})`}
+        </button>
+        <button
+          onClick={() => setFilter('history')}
+          className={cn(
+            'flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-colors',
+            filter === 'history'
+              ? 'bg-primary/15 text-primary'
+              : 'text-muted-foreground hover:bg-muted/50'
+          )}
+        >
+          <History className="w-3 h-3" /> History {history.length > 0 && `(${history.length})`}
+        </button>
+      </div>
+      {visible.length === 0 ? (
+        <div className="px-4 py-3 text-xs text-muted-foreground">
+          {filter === 'pending' ? 'No pending requests' : 'No request history yet'}
+        </div>
+      ) : (
+        <div className="space-y-1">{visible.map(renderRow)}</div>
+      )}
     </div>
   );
 }
