@@ -97,6 +97,27 @@ export default function Auth() {
     }
   };
 
+  const handleForgotPassword = async () => {
+    const emailSchema = z.string().email('Please enter a valid email');
+    const v = emailSchema.safeParse(forgotEmail);
+    if (!v.success) {
+      toast.error(v.error.errors[0].message);
+      return;
+    }
+    setForgotLoading(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    setForgotLoading(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success('If an account exists, a reset link has been sent to your email.');
+    setForgotOpen(false);
+    setForgotEmail('');
+  };
+
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
       {/* Background decoration */}
@@ -184,6 +205,18 @@ export default function Auth() {
                   onChange={(e) => setBio(e.target.value)}
                   maxLength={200}
                 />
+              </div>
+            )}
+
+            {isLogin && (
+              <div className="text-right -mt-2">
+                <button
+                  type="button"
+                  onClick={() => { setForgotEmail(email); setForgotOpen(true); }}
+                  className="text-xs text-muted-foreground hover:text-primary transition-colors"
+                >
+                  Forgot password?
+                </button>
               </div>
             )}
 
