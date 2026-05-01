@@ -124,25 +124,21 @@ export default function MessageRequests({ onOpenChat }: MessageRequestsProps) {
 
   const respond = async (
     req: RequestRow,
-    status: 'accepted' | 'ignored'
+    status: 'accepted' | 'ignored' | 'pending'
   ) => {
     setBusyId(req.id);
     try {
       const { error } = await (supabase as any)
         .from('message_requests')
-        .update({ status, responded_at: new Date().toISOString() })
+        .update({ status, responded_at: status === 'pending' ? null : new Date().toISOString() })
         .eq('id', req.id);
       if (error) throw error;
-      toast.success(
-        status === 'accepted' ? 'Request accepted' : 'Request ignored'
-      );
-      setRequests((prev) => prev.filter((r) => r.id !== req.id));
+      const labelMap = { accepted: 'accepted', ignored: 'ignored', pending: 'reset to pending' } as const;
+      toast.success(`Request ${labelMap[status]}`);
+      setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, status } : r)));
       if (status === 'accepted' && req.requester) {
-        onOpenChat(
-          req.requester_id,
-          req.requester.username,
-          req.requester.profile_image
-        );
+        const partnerId = req.requester_id === user?.id ? req.recipient_id : req.requester_id;
+        onOpenChat(partnerId, req.requester.username, req.requester.profile_image);
       }
     } catch (err: any) {
       console.error(err);
@@ -151,6 +147,14 @@ export default function MessageRequests({ onOpenChat }: MessageRequestsProps) {
       setBusyId(null);
     }
   };
+
+  const pending = requests.filter(
+    (r) => r.status === 'pending' && r.recipient_id === user?.id
+  );
+  const history = requests.filter(
+    (r) => r.status !== 'pending' || r.requester_id === user?.id
+  );
+  const visible = filter === 'pending' ? pending : history;
 
   if (loading) {
     return (
