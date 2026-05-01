@@ -83,17 +83,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signUp = async (email: string, password: string, username: string, bio?: string) => {
     const redirectUrl = `${window.location.origin}/`;
 
+    // Pre-validate username before creating auth user to avoid orphaned accounts
+    const lower = username.trim().toLowerCase();
+    if (lower.startsWith('admin') && lower !== 'baatcheet') {
+      return { error: new Error('Usernames starting with "admin" are reserved.') };
+    }
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        emailRedirectTo: redirectUrl,
-      },
+      options: { emailRedirectTo: redirectUrl },
     });
 
-    if (error) {
-      return { error };
-    }
+    if (error) return { error };
 
     if (data.user) {
       const { error: profileError } = await supabase.from('profiles').insert({
@@ -104,6 +106,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       if (profileError) {
+        // Clean up the auth session so user can retry with a different username
+        await supabase.auth.signOut();
         return { error: profileError };
       }
 

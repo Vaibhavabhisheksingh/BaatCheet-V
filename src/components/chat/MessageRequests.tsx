@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { Inbox, Check, X } from 'lucide-react';
+import { Inbox, Check, X, History, RotateCcw } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -33,15 +33,16 @@ export default function MessageRequests({ onOpenChat }: MessageRequestsProps) {
   const [requests, setRequests] = useState<RequestRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<'pending' | 'history'>('pending');
 
   const load = useCallback(async () => {
     if (!user) return;
     try {
+      // Load both incoming and outgoing requests for full history
       const { data, error } = await (supabase as any)
         .from('message_requests')
         .select('*')
-        .eq('recipient_id', user.id)
-        .eq('status', 'pending')
+        .or(`recipient_id.eq.${user.id},requester_id.eq.${user.id}`)
         .order('created_at', { ascending: false });
       if (error) throw error;
 
@@ -49,13 +50,14 @@ export default function MessageRequests({ onOpenChat }: MessageRequestsProps) {
       let adminIds = new Set<string>();
 
       if (rows.length > 0) {
-        const ids = rows.map((r) => r.requester_id);
+        const ids = Array.from(
+          new Set(rows.flatMap((r) => [r.requester_id, r.recipient_id]))
+        );
         const { data: profs } = await supabase
           .from('profiles')
           .select('user_id, username, profile_image, bio')
           .in('user_id', ids);
 
-        // Exclude admin requesters — admin messages are direct, never requests
         const { data: adminRoles } = await (supabase as any)
           .from('user_roles')
           .select('user_id')
@@ -67,31 +69,33 @@ export default function MessageRequests({ onOpenChat }: MessageRequestsProps) {
           (profs || []).map((p: any) => [p.user_id, p])
         );
 
-        // Fetch preview message (first message from requester)
         const { data: msgs } = await supabase
           .from('messages')
-          .select('sender_id, content, created_at')
-          .eq('receiver_id', user.id)
-          .in('sender_id', ids)
+          .select('sender_id, receiver_id, content, created_at')
+          .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
           .order('created_at', { ascending: true });
 
         const previewMap = new Map<string, string>();
         (msgs || []).forEach((m: any) => {
-          if (!previewMap.has(m.sender_id)) {
-            previewMap.set(m.sender_id, m.content);
-          }
+          const partner = m.sender_id === user.id ? m.receiver_id : m.sender_id;
+          if (!previewMap.has(partner)) previewMap.set(partner, m.content);
         });
 
         rows.forEach((r) => {
-          const p = profMap.get(r.requester_id) as any;
+          // For incoming: requester is the partner. For outgoing: recipient is the partner.
+          const partnerId = r.requester_id === user.id ? r.recipient_id : r.requester_id;
+          const p = profMap.get(partnerId) as any;
           r.requester = p
             ? { username: p.username, profile_image: p.profile_image, bio: p.bio }
             : undefined;
-          r.preview = previewMap.get(r.requester_id) || null;
+          r.preview = previewMap.get(partnerId) || null;
         });
       }
 
-      setRequests(rows.filter((r) => !adminIds.has(r.requester_id)));
+      // Always exclude admin partners — admin messages bypass the request flow
+      setRequests(
+        rows.filter((r) => !adminIds.has(r.requester_id) && !adminIds.has(r.recipient_id))
+      );
     } catch (err) {
       console.error('Failed to load requests', err);
     } finally {
@@ -120,25 +124,21 @@ export default function MessageRequests({ onOpenChat }: MessageRequestsProps) {
 
   const respond = async (
     req: RequestRow,
-    status: 'accepted' | 'ignored'
+    status: 'accepted' | 'ignored' | 'pending'
   ) => {
     setBusyId(req.id);
     try {
       const { error } = await (supabase as any)
         .from('message_requests')
-        .update({ status, responded_at: new Date().toISOString() })
+        .update({ status, responded_at: status === 'pending' ? null : new Date().toISOString() })
         .eq('id', req.id);
       if (error) throw error;
-      toast.success(
-        status === 'accepted' ? 'Request accepted' : 'Request ignored'
-      );
-      setRequests((prev) => prev.filter((r) => r.id !== req.id));
+      const labelMap = { accepted: 'accepted', ignored: 'ignored', pending: 'reset to pending' } as const;
+      toast.success(`Request ${labelMap[status]}`);
+      setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, status } : r)));
       if (status === 'accepted' && req.requester) {
-        onOpenChat(
-          req.requester_id,
-          req.requester.username,
-          req.requester.profile_image
-        );
+        const partnerId = req.requester_id === user?.id ? req.recipient_id : req.requester_id;
+        onOpenChat(partnerId, req.requester.username, req.requester.profile_image);
       }
     } catch (err: any) {
       console.error(err);
@@ -148,6 +148,14 @@ export default function MessageRequests({ onOpenChat }: MessageRequestsProps) {
     }
   };
 
+  const pending = requests.filter(
+    (r) => r.status === 'pending' && r.recipient_id === user?.id
+  );
+  const history = requests.filter(
+    (r) => r.status !== 'pending' || r.requester_id === user?.id
+  );
+  const visible = filter === 'pending' ? pending : history;
+
   if (loading) {
     return (
       <div className="p-6 text-center">
@@ -156,75 +164,125 @@ export default function MessageRequests({ onOpenChat }: MessageRequestsProps) {
     );
   }
 
-  if (requests.length === 0) {
+  const renderRow = (req: RequestRow) => {
+    const isIncoming = req.recipient_id === user?.id;
+    const partnerName = req.requester?.username || 'Unknown user';
     return (
-      <div className="px-4 py-3 text-xs text-muted-foreground">
-        No pending requests
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-1">
-      {requests.map((req) => (
-        <div
-          key={req.id}
-          className={cn(
-            'px-3 py-3 rounded-lg bg-sidebar-accent/40 hover:bg-sidebar-accent transition-colors'
-          )}
-        >
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
-              {req.requester?.profile_image ? (
-                <img
-                  src={req.requester.profile_image}
-                  alt={req.requester.username}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <span className="text-primary font-semibold">
-                  {req.requester?.username?.[0]?.toUpperCase() || '?'}
-                </span>
-              )}
+      <div
+        key={req.id}
+        className={cn(
+          'px-3 py-3 rounded-lg bg-sidebar-accent/40 hover:bg-sidebar-accent transition-colors'
+        )}
+      >
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
+            {req.requester?.profile_image ? (
+              <img src={req.requester.profile_image} alt={partnerName} className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-primary font-semibold">{partnerName[0]?.toUpperCase() || '?'}</span>
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-medium text-sm text-foreground truncate">
+                {isIncoming ? partnerName : `To: ${partnerName}`}
+              </p>
+              <span className="text-[10px] text-muted-foreground flex-shrink-0">
+                {formatDistanceToNow(new Date(req.created_at), { addSuffix: true })}
+              </span>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-2">
-                <p className="font-medium text-sm text-foreground truncate">
-                  {req.requester?.username || 'Unknown user'}
-                </p>
-                <span className="text-[10px] text-muted-foreground flex-shrink-0">
-                  {formatDistanceToNow(new Date(req.created_at), {
-                    addSuffix: true,
-                  })}
-                </span>
-              </div>
-              {req.preview && (
-                <p className="text-xs text-muted-foreground truncate mt-0.5">
-                  {req.preview}
-                </p>
+            {req.preview && (
+              <p className="text-xs text-muted-foreground truncate mt-0.5">{req.preview}</p>
+            )}
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <span
+                className={cn(
+                  'text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider',
+                  req.status === 'pending' && 'bg-muted text-muted-foreground',
+                  req.status === 'accepted' && 'bg-primary/15 text-primary',
+                  req.status === 'ignored' && 'bg-destructive/15 text-destructive'
+                )}
+              >
+                {req.status}
+              </span>
+              {isIncoming && req.status === 'pending' && (
+                <>
+                  <button
+                    onClick={() => respond(req, 'accepted')}
+                    disabled={busyId === req.id}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md gradient-amber text-primary-foreground text-xs font-medium hover:opacity-90 disabled:opacity-60"
+                  >
+                    <Check className="w-3 h-3" /> Accept
+                  </button>
+                  <button
+                    onClick={() => respond(req, 'ignored')}
+                    disabled={busyId === req.id}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-muted text-muted-foreground text-xs font-medium hover:bg-muted/80 hover:text-foreground disabled:opacity-60"
+                  >
+                    <X className="w-3 h-3" /> Ignore
+                  </button>
+                </>
               )}
-              <div className="flex items-center gap-2 mt-2">
+              {isIncoming && req.status === 'ignored' && (
                 <button
                   onClick={() => respond(req, 'accepted')}
                   disabled={busyId === req.id}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md gradient-amber text-primary-foreground text-xs font-medium hover:opacity-90 disabled:opacity-60"
-                >
-                  <Check className="w-3 h-3" />
-                  Accept
-                </button>
-                <button
-                  onClick={() => respond(req, 'ignored')}
-                  disabled={busyId === req.id}
                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-muted text-muted-foreground text-xs font-medium hover:bg-muted/80 hover:text-foreground disabled:opacity-60"
                 >
-                  <X className="w-3 h-3" />
-                  Ignore
+                  <RotateCcw className="w-3 h-3" /> Accept now
                 </button>
-              </div>
+              )}
+              {req.status === 'accepted' && req.requester && (
+                <button
+                  onClick={() => {
+                    const partnerId = req.requester_id === user?.id ? req.recipient_id : req.requester_id;
+                    onOpenChat(partnerId, req.requester!.username, req.requester!.profile_image);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-muted text-muted-foreground text-xs font-medium hover:bg-muted/80 hover:text-foreground"
+                >
+                  Open chat
+                </button>
+              )}
             </div>
           </div>
         </div>
-      ))}
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-1 px-2">
+        <button
+          onClick={() => setFilter('pending')}
+          className={cn(
+            'flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-colors',
+            filter === 'pending'
+              ? 'bg-primary/15 text-primary'
+              : 'text-muted-foreground hover:bg-muted/50'
+          )}
+        >
+          <Inbox className="w-3 h-3" /> Pending {pending.length > 0 && `(${pending.length})`}
+        </button>
+        <button
+          onClick={() => setFilter('history')}
+          className={cn(
+            'flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-colors',
+            filter === 'history'
+              ? 'bg-primary/15 text-primary'
+              : 'text-muted-foreground hover:bg-muted/50'
+          )}
+        >
+          <History className="w-3 h-3" /> History {history.length > 0 && `(${history.length})`}
+        </button>
+      </div>
+      {visible.length === 0 ? (
+        <div className="px-4 py-3 text-xs text-muted-foreground">
+          {filter === 'pending' ? 'No pending requests' : 'No request history yet'}
+        </div>
+      ) : (
+        <div className="space-y-1">{visible.map(renderRow)}</div>
+      )}
     </div>
   );
 }

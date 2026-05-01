@@ -1,8 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { MessageSquare, Eye, EyeOff, Loader2, User, Mail, Lock } from 'lucide-react';
 import { z } from 'zod';
@@ -27,6 +31,9 @@ export default function Auth() {
   const [bio, setBio] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
 
   const { signIn, signUp, user } = useAuth();
   const navigate = useNavigate();
@@ -71,12 +78,17 @@ export default function Auth() {
 
         const { error } = await signUp(email, password, username, bio);
         if (error) {
-          if (error.message.includes('already registered')) {
+          const msg = error.message || '';
+          if (msg.includes('already registered') || msg.toLowerCase().includes('user already')) {
             toast.error('This email is already registered');
-          } else if (error.message.includes('duplicate key') && error.message.includes('username')) {
+          } else if (msg.toLowerCase().includes('reserved') && msg.toLowerCase().includes('admin')) {
+            toast.error('Usernames starting with "admin" are reserved');
+          } else if (msg.includes('BaatCheet')) {
+            toast.error('The username "BaatCheet" is reserved');
+          } else if (msg.includes('duplicate key') && msg.includes('username')) {
             toast.error('This username is already taken');
           } else {
-            toast.error(error.message);
+            toast.error(msg);
           }
         } else {
           toast.success('Account created successfully!');
@@ -88,6 +100,27 @@ export default function Auth() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleForgotPassword = async () => {
+    const emailSchema = z.string().email('Please enter a valid email');
+    const v = emailSchema.safeParse(forgotEmail);
+    if (!v.success) {
+      toast.error(v.error.errors[0].message);
+      return;
+    }
+    setForgotLoading(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    setForgotLoading(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success('If an account exists, a reset link has been sent to your email.');
+    setForgotOpen(false);
+    setForgotEmail('');
   };
 
   return (
@@ -180,6 +213,18 @@ export default function Auth() {
               </div>
             )}
 
+            {isLogin && (
+              <div className="text-right -mt-2">
+                <button
+                  type="button"
+                  onClick={() => { setForgotEmail(email); setForgotOpen(true); }}
+                  className="text-xs text-muted-foreground hover:text-primary transition-colors"
+                >
+                  Forgot password?
+                </button>
+              </div>
+            )}
+
             <Button
               type="submit"
               variant="amber"
@@ -223,6 +268,38 @@ export default function Auth() {
           Premium real-time communication
         </p>
       </div>
+
+      <Dialog open={forgotOpen} onOpenChange={setForgotOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset your password</DialogTitle>
+            <DialogDescription>
+              Enter the email associated with your account. We'll send you a secure link to choose a new password.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">Email</label>
+            <div className="relative">
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                type="email"
+                value={forgotEmail}
+                onChange={(e) => setForgotEmail(e.target.value)}
+                className="pl-10"
+                placeholder="you@example.com"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setForgotOpen(false)} disabled={forgotLoading}>
+              Cancel
+            </Button>
+            <Button variant="amber" onClick={handleForgotPassword} disabled={forgotLoading}>
+              {forgotLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</> : 'Send reset link'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
