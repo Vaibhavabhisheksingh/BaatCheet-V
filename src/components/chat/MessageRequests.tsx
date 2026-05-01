@@ -33,15 +33,16 @@ export default function MessageRequests({ onOpenChat }: MessageRequestsProps) {
   const [requests, setRequests] = useState<RequestRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<'pending' | 'history'>('pending');
 
   const load = useCallback(async () => {
     if (!user) return;
     try {
+      // Load both incoming and outgoing requests for full history
       const { data, error } = await (supabase as any)
         .from('message_requests')
         .select('*')
-        .eq('recipient_id', user.id)
-        .eq('status', 'pending')
+        .or(`recipient_id.eq.${user.id},requester_id.eq.${user.id}`)
         .order('created_at', { ascending: false });
       if (error) throw error;
 
@@ -49,13 +50,14 @@ export default function MessageRequests({ onOpenChat }: MessageRequestsProps) {
       let adminIds = new Set<string>();
 
       if (rows.length > 0) {
-        const ids = rows.map((r) => r.requester_id);
+        const ids = Array.from(
+          new Set(rows.flatMap((r) => [r.requester_id, r.recipient_id]))
+        );
         const { data: profs } = await supabase
           .from('profiles')
           .select('user_id, username, profile_image, bio')
           .in('user_id', ids);
 
-        // Exclude admin requesters — admin messages are direct, never requests
         const { data: adminRoles } = await (supabase as any)
           .from('user_roles')
           .select('user_id')
@@ -67,31 +69,33 @@ export default function MessageRequests({ onOpenChat }: MessageRequestsProps) {
           (profs || []).map((p: any) => [p.user_id, p])
         );
 
-        // Fetch preview message (first message from requester)
         const { data: msgs } = await supabase
           .from('messages')
-          .select('sender_id, content, created_at')
-          .eq('receiver_id', user.id)
-          .in('sender_id', ids)
+          .select('sender_id, receiver_id, content, created_at')
+          .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
           .order('created_at', { ascending: true });
 
         const previewMap = new Map<string, string>();
         (msgs || []).forEach((m: any) => {
-          if (!previewMap.has(m.sender_id)) {
-            previewMap.set(m.sender_id, m.content);
-          }
+          const partner = m.sender_id === user.id ? m.receiver_id : m.sender_id;
+          if (!previewMap.has(partner)) previewMap.set(partner, m.content);
         });
 
         rows.forEach((r) => {
-          const p = profMap.get(r.requester_id) as any;
+          // For incoming: requester is the partner. For outgoing: recipient is the partner.
+          const partnerId = r.requester_id === user.id ? r.recipient_id : r.requester_id;
+          const p = profMap.get(partnerId) as any;
           r.requester = p
             ? { username: p.username, profile_image: p.profile_image, bio: p.bio }
             : undefined;
-          r.preview = previewMap.get(r.requester_id) || null;
+          r.preview = previewMap.get(partnerId) || null;
         });
       }
 
-      setRequests(rows.filter((r) => !adminIds.has(r.requester_id)));
+      // Always exclude admin partners — admin messages bypass the request flow
+      setRequests(
+        rows.filter((r) => !adminIds.has(r.requester_id) && !adminIds.has(r.recipient_id))
+      );
     } catch (err) {
       console.error('Failed to load requests', err);
     } finally {
