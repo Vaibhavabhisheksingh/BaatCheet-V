@@ -78,12 +78,17 @@ export default function Auth() {
 
         const { error } = await signUp(email, password, username, bio);
         if (error) {
-          if (error.message.includes('already registered')) {
+          const msg = error.message || '';
+          if (msg.includes('already registered') || msg.toLowerCase().includes('user already')) {
             toast.error('This email is already registered');
-          } else if (error.message.includes('duplicate key') && error.message.includes('username')) {
+          } else if (msg.toLowerCase().includes('reserved') && msg.toLowerCase().includes('admin')) {
+            toast.error('Usernames starting with "admin" are reserved');
+          } else if (msg.includes('BaatCheet')) {
+            toast.error('The username "BaatCheet" is reserved');
+          } else if (msg.includes('duplicate key') && msg.includes('username')) {
             toast.error('This username is already taken');
           } else {
-            toast.error(error.message);
+            toast.error(msg);
           }
         } else {
           toast.success('Account created successfully!');
