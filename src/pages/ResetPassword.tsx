@@ -96,10 +96,16 @@ export default function ResetPassword() {
 
         <div className="bg-card border border-border rounded-lg p-8 shadow-soft">
           {!hasRecoverySession ? (
-            <p className="text-sm text-muted-foreground text-center">
-              If you arrived here from the password reset email, please wait a moment…
-              If nothing happens, request a new reset link from the sign-in page.
-            </p>
+            <div className="space-y-3 text-center">
+              <p className="text-sm text-muted-foreground">
+                {exchangeError
+                  ? `Reset link is invalid or expired: ${exchangeError}`
+                  : 'Verifying reset link… If nothing happens, the link may have expired. Request a new one from the sign-in page.'}
+              </p>
+              <Button variant="amber" size="sm" onClick={() => navigate('/auth')}>
+                Back to sign in
+              </Button>
+            </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="space-y-2">
