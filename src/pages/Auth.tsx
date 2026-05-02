@@ -200,12 +200,64 @@ export default function Auth() {
           </div>
           <h1 className="text-4xl font-bold text-foreground tracking-tight">BAATCHEET</h1>
           <p className="text-muted-foreground mt-2 text-sm">
-            {isLogin ? 'Welcome back' : 'Create your account'}
+            {otpStep ? 'Verify your email' : isLogin ? 'Welcome back' : 'Create your account'}
           </p>
         </div>
 
         {/* Auth Form */}
         <div className="bg-card border border-border rounded-lg p-8 shadow-soft animate-slide-up">
+          {otpStep ? (
+            <div className="space-y-6">
+              <div className="text-center space-y-2">
+                <p className="text-sm text-foreground font-medium">Enter the 6-digit code</p>
+                <p className="text-xs text-muted-foreground">
+                  We sent it to <span className="text-foreground">{pendingSignup?.email}</span>
+                </p>
+              </div>
+              <div className="flex justify-center">
+                <InputOTP maxLength={6} value={otpCode} onChange={setOtpCode}>
+                  <InputOTPGroup>
+                    <InputOTPSlot index={0} />
+                    <InputOTPSlot index={1} />
+                    <InputOTPSlot index={2} />
+                    <InputOTPSlot index={3} />
+                    <InputOTPSlot index={4} />
+                    <InputOTPSlot index={5} />
+                  </InputOTPGroup>
+                </InputOTP>
+              </div>
+              <Button
+                variant="amber"
+                size="lg"
+                className="w-full"
+                onClick={handleVerifyOtp}
+                disabled={otpLoading || otpCode.length !== 6}
+              >
+                {otpLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Verifying…</> : 'Verify & continue'}
+              </Button>
+              <div className="flex items-center justify-between text-xs">
+                <button
+                  type="button"
+                  onClick={handleBackFromOtp}
+                  className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <ArrowLeft className="w-3 h-3" /> Back
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResendOtp}
+                  disabled={resendCooldown > 0}
+                  className="text-muted-foreground hover:text-primary disabled:opacity-50 transition-colors"
+                >
+                  {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend code'}
+                </button>
+              </div>
+              <p className="text-[11px] text-muted-foreground text-center">
+                Didn't get the email? Check your spam folder.
+              </p>
+            </div>
+          ) : (
+          <>
           <form onSubmit={handleSubmit} className="space-y-5">
             {!isLogin && (
               <div className="space-y-2">
