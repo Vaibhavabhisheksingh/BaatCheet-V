@@ -83,22 +83,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signUp = async (email: string, password: string, username: string, bio?: string) => {
-    const redirectUrl = `${window.location.origin}/`;
-
     // Pre-validate username before creating auth user to avoid orphaned accounts
     const lower = username.trim().toLowerCase();
     if (lower.startsWith('admin') && lower !== 'baatcheet') {
       return { error: new Error('Usernames starting with "admin" are reserved.') };
     }
 
+    // Check username availability up-front (best-effort; final check happens in trigger)
+    const { data: existing } = await supabase
+      .from('profiles')
+      .select('id')
+      .ilike('username', username)
+      .maybeSingle();
+    if (existing) {
+      return { error: new Error('This username is already taken') };
+    }
+
+    // Use email OTP flow: signUp sends a 6-digit code to the email.
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: redirectUrl },
+      options: {
+        // No emailRedirectTo: we want the OTP code, not the magic-link flow
+        data: { pending_username: username, pending_bio: bio || null },
+      },
     });
 
     if (error) return { error };
 
+    // If session is null, email confirmation is required → OTP flow
+    if (!data.session) {
+      return { error: null, needsOtp: true };
+    }
+
+    // Otherwise (auto-confirm enabled), create the profile right away
     if (data.user) {
       const { error: profileError } = await supabase.from('profiles').insert({
         user_id: data.user.id,
@@ -106,18 +124,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         username,
         bio: bio || null,
       });
-
       if (profileError) {
-        // Clean up the auth session so user can retry with a different username
         await supabase.auth.signOut();
         return { error: profileError };
       }
-
       const newProfile = await fetchProfile(data.user.id);
       setProfile(newProfile);
     }
 
     return { error: null };
+  };
+
+  const verifySignupOtp = async (
+    email: string,
+    token: string,
+    pendingProfile: { username: string; bio?: string }
+  ) => {
+    const { data, error } = await supabase.auth.verifyOtp({
+      email,
+      token,
+      type: 'signup',
+    });
+    if (error) return { error };
+
+    if (data.user) {
+      // Create the profile now that the email is verified
+      const { error: profileError } = await supabase.from('profiles').insert({
+        user_id: data.user.id,
+        email,
+        username: pendingProfile.username,
+        bio: pendingProfile.bio || null,
+      });
+      if (profileError) {
+        await supabase.auth.signOut();
+        return { error: profileError };
+      }
+      const newProfile = await fetchProfile(data.user.id);
+      setProfile(newProfile);
+    }
+    return { error: null };
+  };
+
+  const resendSignupOtp = async (email: string) => {
+    const { error } = await supabase.auth.resend({ type: 'signup', email });
+    return { error: error ?? null };
   };
 
   const signIn = async (email: string, password: string) => {
