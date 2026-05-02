@@ -90,7 +90,7 @@ export default function Auth() {
           return;
         }
 
-        const { error } = await signUp(email, password, username, bio);
+        const { error, needsOtp } = await signUp(email, password, username, bio);
         if (error) {
           const msg = error.message || '';
           if (msg.includes('already registered') || msg.toLowerCase().includes('user already')) {
@@ -99,11 +99,18 @@ export default function Auth() {
             toast.error('Usernames starting with "admin" are reserved');
           } else if (msg.includes('BaatCheet')) {
             toast.error('The username "BaatCheet" is reserved');
+          } else if (msg.toLowerCase().includes('username') && msg.toLowerCase().includes('taken')) {
+            toast.error('This username is already taken');
           } else if (msg.includes('duplicate key') && msg.includes('username')) {
             toast.error('This username is already taken');
           } else {
             toast.error(msg);
           }
+        } else if (needsOtp) {
+          setPendingSignup({ email, username, bio });
+          setOtpStep(true);
+          setResendCooldown(30);
+          toast.success('We sent a 6-digit code to your email');
         } else {
           toast.success('Account created successfully!');
           navigate('/chat');
