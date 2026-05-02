@@ -148,7 +148,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) return { error };
 
     if (data.user) {
-      // Create the profile now that the email is verified
+      // If profile already exists (e.g., user verifying after a login attempt), skip insert
+      const existing = await fetchProfile(data.user.id);
+      if (existing) {
+        setProfile(existing);
+        return { error: null };
+      }
+      if (!pendingProfile.username) {
+        return { error: new Error('Missing profile information. Please sign up again.') };
+      }
       const { error: profileError } = await supabase.from('profiles').insert({
         user_id: data.user.id,
         email,
