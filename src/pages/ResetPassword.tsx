@@ -14,17 +14,49 @@ export default function ResetPassword() {
   const [hasRecoverySession, setHasRecoverySession] = useState(false);
   const navigate = useNavigate();
 
+  const [exchangeError, setExchangeError] = useState<string | null>(null);
+
   useEffect(() => {
-    // Supabase auto-handles the recovery token in the URL hash and creates a session
+    let mounted = true;
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && session)) {
         setHasRecoverySession(true);
       }
     });
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) setHasRecoverySession(true);
-    });
-    return () => subscription.unsubscribe();
+
+    (async () => {
+      // 1) PKCE flow: ?code=... in the query string
+      const url = new URL(window.location.href);
+      const code = url.searchParams.get('code');
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
+        if (!mounted) return;
+        if (error) {
+          setExchangeError(error.message);
+        } else {
+          setHasRecoverySession(true);
+          // Clean URL
+          window.history.replaceState({}, '', '/reset-password');
+        }
+        return;
+      }
+
+      // 2) Hash flow: #access_token=...&type=recovery (legacy / implicit)
+      if (window.location.hash.includes('access_token')) {
+        // Supabase client picks this up automatically; just wait for the event
+        return;
+      }
+
+      // 3) Already-active session (e.g., user clicked "change password" while logged in)
+      const { data: { session } } = await supabase.auth.getSession();
+      if (mounted && session) setHasRecoverySession(true);
+    })();
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -64,10 +96,16 @@ export default function ResetPassword() {
 
         <div className="bg-card border border-border rounded-lg p-8 shadow-soft">
           {!hasRecoverySession ? (
-            <p className="text-sm text-muted-foreground text-center">
-              If you arrived here from the password reset email, please wait a moment…
-              If nothing happens, request a new reset link from the sign-in page.
-            </p>
+            <div className="space-y-3 text-center">
+              <p className="text-sm text-muted-foreground">
+                {exchangeError
+                  ? `Reset link is invalid or expired: ${exchangeError}`
+                  : 'Verifying reset link… If nothing happens, the link may have expired. Request a new one from the sign-in page.'}
+              </p>
+              <Button variant="amber" size="sm" onClick={() => navigate('/auth')}>
+                Back to sign in
+              </Button>
+            </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="space-y-2">
