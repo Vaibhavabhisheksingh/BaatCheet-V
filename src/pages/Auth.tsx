@@ -374,6 +374,8 @@ export default function Auth() {
               </span>
             </button>
           </div>
+          </>
+          )}
         </div>
 
         {/* Footer */}
