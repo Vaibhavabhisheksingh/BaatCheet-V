@@ -7,8 +7,9 @@ import { Input } from '@/components/ui/input';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
+import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { toast } from 'sonner';
-import { MessageSquare, Eye, EyeOff, Loader2, User, Mail, Lock } from 'lucide-react';
+import { MessageSquare, Eye, EyeOff, Loader2, User, Mail, Lock, ArrowLeft } from 'lucide-react';
 import { z } from 'zod';
 
 const loginSchema = z.object({
