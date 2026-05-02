@@ -14,17 +14,49 @@ export default function ResetPassword() {
   const [hasRecoverySession, setHasRecoverySession] = useState(false);
   const navigate = useNavigate();
 
+  const [exchangeError, setExchangeError] = useState<string | null>(null);
+
   useEffect(() => {
-    // Supabase auto-handles the recovery token in the URL hash and creates a session
+    let mounted = true;
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && session)) {
         setHasRecoverySession(true);
       }
     });
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) setHasRecoverySession(true);
-    });
-    return () => subscription.unsubscribe();
+
+    (async () => {
+      // 1) PKCE flow: ?code=... in the query string
+      const url = new URL(window.location.href);
+      const code = url.searchParams.get('code');
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
+        if (!mounted) return;
+        if (error) {
+          setExchangeError(error.message);
+        } else {
+          setHasRecoverySession(true);
+          // Clean URL
+          window.history.replaceState({}, '', '/reset-password');
+        }
+        return;
+      }
+
+      // 2) Hash flow: #access_token=...&type=recovery (legacy / implicit)
+      if (window.location.hash.includes('access_token')) {
+        // Supabase client picks this up automatically; just wait for the event
+        return;
+      }
+
+      // 3) Already-active session (e.g., user clicked "change password" while logged in)
+      const { data: { session } } = await supabase.auth.getSession();
+      if (mounted && session) setHasRecoverySession(true);
+    })();
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
