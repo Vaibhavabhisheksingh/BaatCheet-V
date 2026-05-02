@@ -244,6 +244,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading,
         signUp,
         signIn,
+        verifySignupOtp,
+        resendSignupOtp,
         signOut,
         updateProfile,
         uploadAvatar,
