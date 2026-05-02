@@ -144,6 +144,46 @@ export default function Auth() {
     setForgotEmail('');
   };
 
+  const handleVerifyOtp = async () => {
+    if (!pendingSignup) return;
+    if (otpCode.length !== 6) {
+      toast.error('Enter the 6-digit code');
+      return;
+    }
+    setOtpLoading(true);
+    const { error } = await verifySignupOtp(pendingSignup.email, otpCode, {
+      username: pendingSignup.username,
+      bio: pendingSignup.bio,
+    });
+    setOtpLoading(false);
+    if (error) {
+      const m = (error.message || '').toLowerCase();
+      if (m.includes('expired')) toast.error('Code expired. Please resend.');
+      else if (m.includes('invalid') || m.includes('token')) toast.error('Invalid code. Please try again.');
+      else toast.error(error.message);
+      return;
+    }
+    toast.success('Email verified! Welcome to BaatCheet.');
+    navigate('/chat');
+  };
+
+  const handleResendOtp = async () => {
+    if (!pendingSignup || resendCooldown > 0) return;
+    const { error } = await resendSignupOtp(pendingSignup.email);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success('A new code has been sent');
+    setResendCooldown(30);
+  };
+
+  const handleBackFromOtp = () => {
+    setOtpStep(false);
+    setOtpCode('');
+    setPendingSignup(null);
+  };
+
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
       {/* Background decoration */}
