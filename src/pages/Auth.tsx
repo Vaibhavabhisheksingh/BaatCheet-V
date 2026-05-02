@@ -73,7 +73,15 @@ export default function Auth() {
 
         const { error } = await signIn(email, password);
         if (error) {
-          if (error.message.includes('Invalid login credentials')) {
+          const m = (error.message || '').toLowerCase();
+          if (m.includes('email not confirmed') || m.includes('not confirmed')) {
+            // Switch into OTP verification step so user can finish onboarding
+            setPendingSignup({ email, username: '', bio: '' });
+            await supabase.auth.resend({ type: 'signup', email });
+            setOtpStep(true);
+            setResendCooldown(30);
+            toast.error('Please verify your email. We sent you a new 6-digit code.');
+          } else if (m.includes('invalid login credentials')) {
             toast.error('Invalid email or password');
           } else {
             toast.error(error.message);
