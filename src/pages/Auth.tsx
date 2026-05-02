@@ -36,8 +36,21 @@ export default function Auth() {
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotLoading, setForgotLoading] = useState(false);
 
-  const { signIn, signUp, user } = useAuth();
+  // OTP verification step (after signup)
+  const [otpStep, setOtpStep] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [pendingSignup, setPendingSignup] = useState<{ email: string; username: string; bio?: string } | null>(null);
+
+  const { signIn, signUp, verifySignupOtp, resendSignupOtp, user } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const t = setTimeout(() => setResendCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendCooldown]);
 
   useEffect(() => {
     if (user) {
