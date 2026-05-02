@@ -18,8 +18,10 @@ interface AuthContextType {
   session: Session | null;
   profile: Profile | null;
   loading: boolean;
-  signUp: (email: string, password: string, username: string, bio?: string) => Promise<{ error: Error | null }>;
+  signUp: (email: string, password: string, username: string, bio?: string) => Promise<{ error: Error | null; needsOtp?: boolean }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  verifySignupOtp: (email: string, token: string, pendingProfile: { username: string; bio?: string }) => Promise<{ error: Error | null }>;
+  resendSignupOtp: (email: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<Profile>) => Promise<{ error: Error | null }>;
   uploadAvatar: (file: File) => Promise<{ url: string | null; error: Error | null }>;
