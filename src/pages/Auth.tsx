@@ -7,9 +7,8 @@ import { Input } from '@/components/ui/input';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
-import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { toast } from 'sonner';
-import { MessageSquare, Eye, EyeOff, Loader2, User, Mail, Lock, ArrowLeft } from 'lucide-react';
+import { MessageSquare, Eye, EyeOff, Loader2, User, Mail, Lock } from 'lucide-react';
 import { z } from 'zod';
 
 const loginSchema = z.object({
@@ -36,21 +35,8 @@ export default function Auth() {
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotLoading, setForgotLoading] = useState(false);
 
-  // OTP verification step (after signup)
-  const [otpStep, setOtpStep] = useState(false);
-  const [otpCode, setOtpCode] = useState('');
-  const [otpLoading, setOtpLoading] = useState(false);
-  const [resendCooldown, setResendCooldown] = useState(0);
-  const [pendingSignup, setPendingSignup] = useState<{ email: string; username: string; bio?: string } | null>(null);
-
-  const { signIn, signUp, verifySignupOtp, resendSignupOtp, user } = useAuth();
+  const { signIn, signUp, user } = useAuth();
   const navigate = useNavigate();
-
-  useEffect(() => {
-    if (resendCooldown <= 0) return;
-    const t = setTimeout(() => setResendCooldown((c) => c - 1), 1000);
-    return () => clearTimeout(t);
-  }, [resendCooldown]);
 
   useEffect(() => {
     if (user) {
@@ -74,14 +60,7 @@ export default function Auth() {
         const { error } = await signIn(email, password);
         if (error) {
           const m = (error.message || '').toLowerCase();
-          if (m.includes('email not confirmed') || m.includes('not confirmed')) {
-            // Switch into OTP verification step so user can finish onboarding
-            setPendingSignup({ email, username: '', bio: '' });
-            await supabase.auth.resend({ type: 'signup', email });
-            setOtpStep(true);
-            setResendCooldown(30);
-            toast.error('Please verify your email. We sent you a new 6-digit code.');
-          } else if (m.includes('invalid login credentials')) {
+          if (m.includes('invalid login credentials')) {
             toast.error('Invalid email or password');
           } else {
             toast.error(error.message);
@@ -98,7 +77,7 @@ export default function Auth() {
           return;
         }
 
-        const { error, needsOtp } = await signUp(email, password, username, bio);
+        const { error } = await signUp(email, password, username, bio);
         if (error) {
           const msg = error.message || '';
           if (msg.includes('already registered') || msg.toLowerCase().includes('user already')) {
@@ -114,11 +93,6 @@ export default function Auth() {
           } else {
             toast.error(msg);
           }
-        } else if (needsOtp) {
-          setPendingSignup({ email, username, bio });
-          setOtpStep(true);
-          setResendCooldown(30);
-          toast.success('We sent a 6-digit code to your email');
         } else {
           toast.success('Account created successfully!');
           navigate('/chat');
@@ -152,120 +126,25 @@ export default function Auth() {
     setForgotEmail('');
   };
 
-  const handleVerifyOtp = async () => {
-    if (!pendingSignup) return;
-    if (otpCode.length !== 6) {
-      toast.error('Enter the 6-digit code');
-      return;
-    }
-    setOtpLoading(true);
-    const { error } = await verifySignupOtp(pendingSignup.email, otpCode, {
-      username: pendingSignup.username,
-      bio: pendingSignup.bio,
-    });
-    setOtpLoading(false);
-    if (error) {
-      const m = (error.message || '').toLowerCase();
-      if (m.includes('expired')) toast.error('Code expired. Please resend.');
-      else if (m.includes('invalid') || m.includes('token')) toast.error('Invalid code. Please try again.');
-      else toast.error(error.message);
-      return;
-    }
-    toast.success('Email verified! Welcome to BaatCheet.');
-    navigate('/chat');
-  };
-
-  const handleResendOtp = async () => {
-    if (!pendingSignup || resendCooldown > 0) return;
-    const { error } = await resendSignupOtp(pendingSignup.email);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    toast.success('A new code has been sent');
-    setResendCooldown(30);
-  };
-
-  const handleBackFromOtp = () => {
-    setOtpStep(false);
-    setOtpCode('');
-    setPendingSignup(null);
-  };
-
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
-      {/* Background decoration */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/5 rounded-full blur-3xl" />
         <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-primary/3 rounded-full blur-3xl" />
       </div>
 
       <div className="relative z-10 w-full max-w-md">
-        {/* Logo & Title */}
         <div className="text-center mb-10 animate-fade-in">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-lg gradient-amber mb-6">
             <MessageSquare className="w-8 h-8 text-primary-foreground" />
           </div>
           <h1 className="text-4xl font-bold text-foreground tracking-tight">BAATCHEET</h1>
           <p className="text-muted-foreground mt-2 text-sm">
-            {otpStep ? 'Verify your email' : isLogin ? 'Welcome back' : 'Create your account'}
+            {isLogin ? 'Welcome back' : 'Create your account'}
           </p>
         </div>
 
-        {/* Auth Form */}
         <div className="bg-card border border-border rounded-lg p-8 shadow-soft animate-slide-up">
-          {otpStep ? (
-            <div className="space-y-6">
-              <div className="text-center space-y-2">
-                <p className="text-sm text-foreground font-medium">Enter the 6-digit code</p>
-                <p className="text-xs text-muted-foreground">
-                  We sent it to <span className="text-foreground">{pendingSignup?.email}</span>
-                </p>
-              </div>
-              <div className="flex justify-center">
-                <InputOTP maxLength={6} value={otpCode} onChange={setOtpCode}>
-                  <InputOTPGroup>
-                    <InputOTPSlot index={0} />
-                    <InputOTPSlot index={1} />
-                    <InputOTPSlot index={2} />
-                    <InputOTPSlot index={3} />
-                    <InputOTPSlot index={4} />
-                    <InputOTPSlot index={5} />
-                  </InputOTPGroup>
-                </InputOTP>
-              </div>
-              <Button
-                variant="amber"
-                size="lg"
-                className="w-full"
-                onClick={handleVerifyOtp}
-                disabled={otpLoading || otpCode.length !== 6}
-              >
-                {otpLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Verifying…</> : 'Verify & continue'}
-              </Button>
-              <div className="flex items-center justify-between text-xs">
-                <button
-                  type="button"
-                  onClick={handleBackFromOtp}
-                  className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <ArrowLeft className="w-3 h-3" /> Back
-                </button>
-                <button
-                  type="button"
-                  onClick={handleResendOtp}
-                  disabled={resendCooldown > 0}
-                  className="text-muted-foreground hover:text-primary disabled:opacity-50 transition-colors"
-                >
-                  {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend code'}
-                </button>
-              </div>
-              <p className="text-[11px] text-muted-foreground text-center">
-                Didn't get the email? Check your spam folder.
-              </p>
-            </div>
-          ) : (
-          <>
           <form onSubmit={handleSubmit} className="space-y-5">
             {!isLogin && (
               <div className="space-y-2">
@@ -382,11 +261,8 @@ export default function Auth() {
               </span>
             </button>
           </div>
-          </>
-          )}
         </div>
 
-        {/* Footer */}
         <p className="text-center text-xs text-muted-foreground mt-8">
           Premium real-time communication
         </p>

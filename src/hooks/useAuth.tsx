@@ -18,10 +18,8 @@ interface AuthContextType {
   session: Session | null;
   profile: Profile | null;
   loading: boolean;
-  signUp: (email: string, password: string, username: string, bio?: string) => Promise<{ error: Error | null; needsOtp?: boolean }>;
+  signUp: (email: string, password: string, username: string, bio?: string) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  verifySignupOtp: (email: string, token: string, pendingProfile: { username: string; bio?: string }) => Promise<{ error: Error | null }>;
-  resendSignupOtp: (email: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<Profile>) => Promise<{ error: Error | null }>;
   uploadAvatar: (file: File) => Promise<{ url: string | null; error: Error | null }>;
@@ -89,7 +87,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: new Error('Usernames starting with "admin" are reserved.') };
     }
 
-    // Check username availability up-front (best-effort; final check happens in trigger)
     const { data: existing } = await supabase
       .from('profiles')
       .select('id')
@@ -99,24 +96,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: new Error('This username is already taken') };
     }
 
-    // Use email OTP flow: signUp sends a 6-digit code to the email.
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        // No emailRedirectTo: we want the OTP code, not the magic-link flow
+        emailRedirectTo: `${window.location.origin}/`,
         data: { pending_username: username, pending_bio: bio || null },
       },
     });
 
     if (error) return { error };
 
-    // If session is null, email confirmation is required → OTP flow
-    if (!data.session) {
-      return { error: null, needsOtp: true };
-    }
-
-    // Otherwise (auto-confirm enabled), create the profile right away
     if (data.user) {
       const { error: profileError } = await supabase.from('profiles').insert({
         user_id: data.user.id,
@@ -128,55 +118,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await supabase.auth.signOut();
         return { error: profileError };
       }
-      const newProfile = await fetchProfile(data.user.id);
-      setProfile(newProfile);
+      if (data.session) {
+        const newProfile = await fetchProfile(data.user.id);
+        setProfile(newProfile);
+      }
     }
 
     return { error: null };
   };
 
-  const verifySignupOtp = async (
-    email: string,
-    token: string,
-    pendingProfile: { username: string; bio?: string }
-  ) => {
-    const { data, error } = await supabase.auth.verifyOtp({
-      email,
-      token,
-      type: 'signup',
-    });
-    if (error) return { error };
-
-    if (data.user) {
-      // If profile already exists (e.g., user verifying after a login attempt), skip insert
-      const existing = await fetchProfile(data.user.id);
-      if (existing) {
-        setProfile(existing);
-        return { error: null };
-      }
-      if (!pendingProfile.username) {
-        return { error: new Error('Missing profile information. Please sign up again.') };
-      }
-      const { error: profileError } = await supabase.from('profiles').insert({
-        user_id: data.user.id,
-        email,
-        username: pendingProfile.username,
-        bio: pendingProfile.bio || null,
-      });
-      if (profileError) {
-        await supabase.auth.signOut();
-        return { error: profileError };
-      }
-      const newProfile = await fetchProfile(data.user.id);
-      setProfile(newProfile);
-    }
-    return { error: null };
-  };
-
-  const resendSignupOtp = async (email: string) => {
-    const { error } = await supabase.auth.resend({ type: 'signup', email });
-    return { error: error ?? null };
-  };
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({
@@ -252,8 +202,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading,
         signUp,
         signIn,
-        verifySignupOtp,
-        resendSignupOtp,
         signOut,
         updateProfile,
         uploadAvatar,
